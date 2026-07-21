@@ -1,5 +1,7 @@
 # AI Voice Receptionist
 
+[![GitHub](https://img.shields.io/badge/GitHub-Dental--Voice--Assistant-blue?style=for-the-badge&logo=github)](https://github.com/diorwave/Dental-Voice-Assistant)
+[![Stars](https://img.shields.io/github/stars/diorwave/Dental-Voice-Assistant?style=for-the-badge&logo=github)](https://github.com/diorwave/Dental-Voice-Assistant/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Django](https://img.shields.io/badge/Django-5.1-092E20?style=for-the-badge&logo=django)](https://www.djangoproject.com/)
 [![OpenAI](https://img.shields.io/badge/OpenAI-gpt--4o-412991?style=for-the-badge&logo=openai)](https://platform.openai.com/)
@@ -69,8 +71,8 @@ The voice widget needs `VAPI_PUBLIC_KEY` and `VAPI_ASSISTANT_ID` set (see below)
 ### 1. Clone and configure
 
 ```bash
-git clone <your-repo-url> ai-voice-agent
-cd ai-voice-agent
+git clone https://github.com/diorwave/Dental-Voice-Assistant.git
+cd Dental-Voice-Assistant
 cp .env.example .env
 ```
 
