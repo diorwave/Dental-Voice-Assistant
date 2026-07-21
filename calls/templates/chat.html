@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Chat with Sarah — Bright Smile Dental{% endblock %}
+{% block extra_css %}
+  .chat-page{padding:40px 0}
+  .chat-page .lead{text-align:center;margin-bottom:26px}
+  .chat-page h1{font-size:30px;margin:0 0 6px;letter-spacing:-.5px}
+  .chat-page .lead p{color:var(--slate);margin:0}
+  .chat-hold{max-width:640px;margin:0 auto}
+{% endblock %}
+{% block content %}
+<div class="chat-page">
+  <div class="wrap">
+    <div class="lead">
+      <h1>Chat with Sarah 🦷</h1>
+      <p>The same AI that answers the phone — try booking an appointment.</p>
+    </div>
+    <div class="chat-hold">{% include "_chat_widget.html" %}</div>
+  </div>
+</div>
+{% endblock %}

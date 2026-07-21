@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}Bright Smile Dental — 24/7 AI Receptionist{% endblock %}
+
+{% block extra_css %}
+  .hero{padding:72px 0 40px}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;background:#e6fffb;color:var(--teal-dark);
+    padding:6px 14px;border-radius:999px;font-weight:700;font-size:13px;margin-bottom:18px}
+  h1.hero-title{font-size:46px;line-height:1.08;margin:0 0 16px;letter-spacing:-1px}
+  h1.hero-title span{color:var(--teal)}
+  .hero-sub{font-size:18px;color:var(--slate);margin-bottom:28px;max-width:520px}
+  .hero-actions{display:flex;gap:12px;flex-wrap:wrap}
+  .voice-card{padding:28px;text-align:center}
+  .orb{width:120px;height:120px;border-radius:50%;margin:8px auto 18px;display:grid;place-items:center;font-size:52px;
+    background:radial-gradient(circle at 30% 30%,var(--teal-light),var(--teal));color:#fff;
+    box-shadow:0 12px 40px rgba(13,148,136,.35);transition:.3s}
+  .orb.live{animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 12px 40px rgba(13,148,136,.35)}50%{box-shadow:0 12px 60px rgba(13,148,136,.6)}}
+  .voice-status{font-weight:700;margin-bottom:16px;min-height:22px}
+  .stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:44px}
+  .stat{padding:20px;text-align:center}
+  .stat .n{font-size:28px;font-weight:800;color:var(--teal)}
+  .stat .l{font-size:13px;color:var(--muted);font-weight:600}
+  section.block{padding:36px 0}
+  h2.sec{font-size:28px;margin:0 0 8px;letter-spacing:-.5px}
+  .sec-sub{color:var(--slate);margin:0 0 26px}
+  .services{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .svc{padding:24px}
+  .svc .ic{font-size:26px;margin-bottom:10px}
+  .svc h3{margin:0 0 6px;font-size:17px}
+  .svc p{margin:0;color:var(--slate);font-size:14px}
+  .hours{display:grid;grid-template-columns:1fr 1fr;gap:10px 32px;max-width:460px}
+  .hours .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed var(--line)}
+  .try-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}
+  @media(max-width:880px){.hero-grid,.try-grid{grid-template-columns:1fr}.services,.stats-row{grid-template-columns:1fr}
+    h1.hero-title{font-size:36px}.hours{grid-template-columns:1fr}}
+{% endblock %}
+
+{% block content %}
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow">✨ Answered 24/7 by AI</div>
+      <h1 class="hero-title">Never miss a patient call at <span>Bright Smile Dental</span>.</h1>
+      <p class="hero-sub">Sarah, our AI receptionist, answers every call, checks the calendar in real time, books appointments, and texts a confirmation — day or night.</p>
+      <div class="hero-actions">
+        <button class="btn btn-primary" id="voice-start-hero">📞 Talk to Sarah</button>
+        <a class="btn btn-ghost" href="{% url 'chat' %}">💬 Or type instead</a>
+      </div>
+    </div>
+    <div class="voice-card card">
+      <div class="orb" id="orb">🎙️</div>
+      <div class="voice-status" id="voice-status">Tap below to start a live voice call</div>
+      <button class="btn btn-primary" id="voice-toggle" style="width:100%;justify-content:center">Start voice call</button>
+      <p class="muted" style="font-size:12px;margin:14px 0 0">Uses your microphone · powered by Vapi</p>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="stats-row">
+      <div class="stat card"><div class="n">24/7</div><div class="l">Always answering</div></div>
+      <div class="stat card"><div class="n">&lt;2s</div><div class="l">Avg. response</div></div>
+      <div class="stat card"><div class="n">100%</div><div class="l">Calls captured</div></div>
+    </div>
+  </div>
+</header>
+
+<section class="block">
+  <div class="wrap">
+    <h2 class="sec">What Sarah can do</h2>
+    <p class="sec-sub">A full front-desk workflow, handled automatically.</p>
+    <div class="services">
+      <div class="svc card"><div class="ic">📅</div><h3>Check availability</h3><p>Reads your Google Calendar live and offers open slots.</p></div>
+      <div class="svc card"><div class="ic">✅</div><h3>Book appointments</h3><p>Creates the calendar event and records the patient details.</p></div>
+      <div class="svc card"><div class="ic">💬</div><h3>Text confirmations</h3><p>Sends an SMS confirmation via Twilio the moment it's booked.</p></div>
+      <div class="svc card"><div class="ic">🕗</div><h3>Answer questions</h3><p>Hours, location, services, and new-patient info — instantly.</p></div>
+      <div class="svc card"><div class="ic">📝</div><h3>Log every call</h3><p>Summaries and outcomes saved to the staff dashboard.</p></div>
+      <div class="svc card"><div class="ic">🔁</div><h3>Never on hold</h3><p>Handles every caller at once, with no wait times.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="wrap try-grid">
+    <div>
+      <h2 class="sec">Try it right now</h2>
+      <p class="sec-sub">Chat with Sarah below — it runs the exact same AI, calendar, and booking your phone line uses.</p>
+      <div class="hours card" style="padding:22px;display:block">
+        <h3 style="margin:0 0 12px">Office hours</h3>
+        <div class="row"><span>Mon – Fri</span><strong>8:00 AM – 6:00 PM</strong></div>
+        <div class="row"><span>Saturday</span><strong>9:00 AM – 2:00 PM</strong></div>
+        <div class="row"><span>Sunday</span><strong>Closed</strong></div>
+        <div class="row" style="border:0"><span>Address</span><strong>123 Main Street, Suite 200</strong></div>
+      </div>
+    </div>
+    <div>{% include "_chat_widget.html" %}</div>
+  </div>
+</section>
+
+<!-- Live voice-call window -->
+<div class="voice-modal" id="voice-modal" aria-hidden="true">
+  <div class="vm-card">
+    <div class="vm-head">
+      <div class="vm-orb" id="vm-orb">🎙️</div>
+      <div>
+        <div class="vm-title">Sarah · Bright Smile Dental</div>
+        <div class="vm-status" id="vm-status">Connecting…</div>
+      </div>
+      <button class="vm-x" id="vm-close" title="Close" aria-label="Close">✕</button>
+    </div>
+    <div class="vm-log" id="vm-log"></div>
+    <div class="vm-foot">
+      <button class="btn" id="vm-end">End call</button>
+    </div>
+  </div>
+</div>
+<style>
+  .voice-modal{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);
+    display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .voice-modal.open{display:flex}
+  .vm-card{width:100%;max-width:460px;background:#fff;border-radius:20px;overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,.35);display:flex;flex-direction:column;max-height:86vh}
+  .vm-head{display:flex;align-items:center;gap:12px;padding:18px 20px;color:#fff;
+    background:linear-gradient(135deg,var(--teal),var(--teal-dark))}
+  .vm-orb{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-size:22px;background:rgba(255,255,255,.22)}
+  .vm-orb.live{animation:pulse 1.4s ease-in-out infinite}
+  .vm-title{font-weight:800}
+  .vm-status{font-size:12.5px;opacity:.92}
+  .vm-x{margin-left:auto;background:rgba(255,255,255,.22);border:0;color:#fff;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:13px}
+  .vm-log{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:10px;background:#fbfdfd;min-height:280px}
+  .vm-msg{display:flex}
+  .vm-msg.user{justify-content:flex-end}
+  .vm-bubble{max-width:80%;padding:10px 14px;border-radius:15px;font-size:14.5px;white-space:pre-wrap;word-wrap:break-word}
+  .vm-msg.assistant .vm-bubble{background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
+  .vm-msg.user .vm-bubble{background:var(--teal);color:#fff;border-bottom-right-radius:4px}
+  .vm-bubble.partial{opacity:.55}
+  .vm-empty{margin:auto;text-align:center;color:var(--muted);font-size:14px}
+  .vm-foot{padding:14px 18px;border-top:1px solid var(--line)}
+  .vm-foot .btn{width:100%;justify-content:center;background:#dc2626;color:#fff}
+  .vm-foot .btn.ended{background:var(--teal)}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script type="module">
+  const PUBLIC_KEY = "{{ vapi_public_key }}";
+  const ASSISTANT_ID = "{{ vapi_assistant_id }}";
+  const statusEl = document.getElementById('voice-status');
+  const orb = document.getElementById('orb');
+  const toggle = document.getElementById('voice-toggle');
+  const heroBtn = document.getElementById('voice-start-hero');
+  // Modal (voice-call window)
+  const modal = document.getElementById('voice-modal');
+  const vmLog = document.getElementById('vm-log');
+  const vmStatus = document.getElementById('vm-status');
+  const vmOrb = document.getElementById('vm-orb');
+  const vmEnd = document.getElementById('vm-end');
+  const vmClose = document.getElementById('vm-close');
+
+  const openModal = ()=>{ modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); };
+  const closeModal = ()=>{ modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); };
+  const resetLog = ()=>{ vmLog.innerHTML = '<div class="vm-empty" id="vm-empty">🎧 Connecting… say hello to Sarah once connected.</div>'; };
+  const dropEmpty = ()=>{ const e = document.getElementById('vm-empty'); if(e) e.remove(); };
+
+  // Track the in-progress (partial) transcript bubble for each speaker.
+  const partial = { user:null, assistant:null };
+  function renderTranscript(role, text, isFinal){
+    dropEmpty();
+    role = role === 'user' ? 'user' : 'assistant';
+    let b = partial[role];
+    if(!b){
+      const wrap = document.createElement('div');
+      wrap.className = 'vm-msg ' + role;
+      b = document.createElement('div');
+      b.className = 'vm-bubble partial';
+      wrap.appendChild(b);
+      vmLog.appendChild(wrap);
+      partial[role] = b;
+    }
+    b.textContent = text;
+    if(isFinal){ b.classList.remove('partial'); partial[role] = null; }
+    vmLog.scrollTop = vmLog.scrollHeight;
+  }
+
+  if(!PUBLIC_KEY || !ASSISTANT_ID){
+    statusEl.textContent = "Voice not configured yet";
+    const note = "Set VAPI_PUBLIC_KEY and VAPI_ASSISTANT_ID to enable the live call button.";
+    toggle.disabled = true; toggle.textContent = "Voice disabled";
+    toggle.title = note; statusEl.title = note;
+    heroBtn.addEventListener('click', ()=>alert(note));
+  } else {
+    const Vapi = (await import("https://esm.sh/@vapi-ai/web@2")).default;
+    const vapi = new Vapi(PUBLIC_KEY);
+    let live = false;
+
+    function setLive(on){
+      live = on;
+      orb.classList.toggle('live', on);
+      vmOrb.classList.toggle('live', on);
+      toggle.textContent = on ? "End call" : "Start voice call";
+      toggle.style.background = on ? "#dc2626" : "";
+      statusEl.textContent = on ? "🔴 In a call — see the window" : "Tap below to start a live voice call";
+      orb.textContent = on ? "🔊" : "🎙️";
+    }
+
+    function start(){
+      partial.user = partial.assistant = null;
+      resetLog();
+      vmStatus.textContent = "Connecting…";
+      vmOrb.textContent = "🎙️";
+      vmEnd.textContent = "End call";
+      vmEnd.classList.remove('ended');
+      openModal();
+      vapi.start(ASSISTANT_ID);
+    }
+
+    toggle.addEventListener('click', ()=> live ? vapi.stop() : start());
+    heroBtn.addEventListener('click', ()=> live ? vapi.stop() : start());
+    vmEnd.addEventListener('click', ()=>{ if(live){ vapi.stop(); } else { closeModal(); } });
+    vmClose.addEventListener('click', ()=>{ if(live){ vapi.stop(); } closeModal(); });
+
+    vapi.on('call-start', ()=>{ setLive(true); vmStatus.textContent = "🎧 Connected — start speaking"; vmOrb.textContent = "🔊"; });
+    vapi.on('call-end', ()=>{
+      setLive(false);
+      vmStatus.textContent = "Call ended";
+      vmOrb.textContent = "✅";
+      vmEnd.textContent = "Close";
+      vmEnd.classList.add('ended');
+    });
+    vapi.on('speech-start', ()=>{ if(live){ vmStatus.textContent = "🗣️ Sarah is speaking…"; } });
+    vapi.on('speech-end', ()=>{ if(live){ vmStatus.textContent = "🎧 Listening…"; } });
+    // Live transcripts of both the caller and Sarah.
+    vapi.on('message', (m)=>{
+      if(m && m.type === 'transcript' && m.transcript){
+        renderTranscript(m.role, m.transcript, m.transcriptType === 'final');
+      }
+    });
+    vapi.on('error', (e)=>{ vmStatus.textContent = "Error: " + (e && e.message || e); setLive(false); });
+  }
+</script>
+{% endblock %}

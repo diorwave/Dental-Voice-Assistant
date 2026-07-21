@@ -1,0 +1,74 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Bright Smile Dental{% endblock %}</title>
+  <style>
+    :root{
+      --teal:#0d9488; --teal-dark:#0f766e; --teal-light:#5eead4;
+      --ink:#0f172a; --slate:#475569; --muted:#94a3b8;
+      --bg:#f6f8fa; --card:#ffffff; --line:#e2e8f0;
+      --good:#16a34a; --good-bg:#dcfce7; --warn:#d97706; --warn-bg:#fef3c7;
+      --radius:16px; --shadow:0 1px 3px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.05);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      color:var(--ink);background:var(--bg);line-height:1.55;-webkit-font-smoothing:antialiased}
+    a{color:var(--teal-dark);text-decoration:none}
+    .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+    /* nav */
+    nav.top{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.85);backdrop-filter:blur(10px);
+      border-bottom:1px solid var(--line)}
+    nav.top .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;color:var(--ink)}
+    .brand .logo{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
+      background:linear-gradient(135deg,var(--teal),var(--teal-dark));color:#fff;font-size:18px}
+    .navlinks{display:flex;gap:6px;align-items:center}
+    .navlinks a{padding:8px 14px;border-radius:10px;color:var(--slate);font-weight:600;font-size:14px}
+    .navlinks a:hover{background:#eef2f4;color:var(--ink)}
+    .navlinks a.cta{background:var(--teal);color:#fff}
+    .navlinks a.cta:hover{background:var(--teal-dark)}
+    /* buttons */
+    .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:12px;border:0;
+      font-weight:700;font-size:15px;cursor:pointer;transition:.15s;font-family:inherit}
+    .btn-primary{background:var(--teal);color:#fff}
+    .btn-primary:hover{background:var(--teal-dark)}
+    .btn-ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+    .btn-ghost:hover{border-color:var(--muted)}
+    /* cards */
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+    /* misc */
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700}
+    .pill-good{background:var(--good-bg);color:var(--good)}
+    .pill-warn{background:var(--warn-bg);color:var(--warn)}
+    .muted{color:var(--muted)}
+    footer.site{border-top:1px solid var(--line);margin-top:64px;padding:28px 0;color:var(--muted);font-size:13px}
+    footer.site .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+    @media(max-width:640px){.navlinks a:not(.cta){display:none}}
+    {% block extra_css %}{% endblock %}
+  </style>
+</head>
+<body>
+  <nav class="top">
+    <div class="wrap">
+      <a class="brand" href="{% url 'landing' %}"><span class="logo">🦷</span> Bright Smile Dental</a>
+      <div class="navlinks">
+        <a href="{% url 'landing' %}">Home</a>
+        <a href="{% url 'chat' %}">Chat with Sarah</a>
+        <a href="{% url 'dashboard' %}">Dashboard</a>
+        <a class="cta" href="{% url 'chat' %}">Book now</a>
+      </div>
+    </div>
+  </nav>
+  {% block content %}{% endblock %}
+  <footer class="site">
+    <div class="wrap">
+      <span>© Bright Smile Dental — AI Voice Receptionist</span>
+      <span>Powered by Claude · Vapi · Django</span>
+    </div>
+  </footer>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

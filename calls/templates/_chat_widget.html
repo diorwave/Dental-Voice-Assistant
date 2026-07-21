@@ -1,0 +1,99 @@
+{# Reusable text chat tester. Talks to the same /api/vapi/chat/completions/ endpoint Vapi uses. #}
+<div class="chatbox card" id="chatbox">
+  <div class="chat-head">
+    <div class="chat-avatar">S</div>
+    <div>
+      <div class="chat-name">Sarah</div>
+      <div class="chat-sub">Bright Smile Dental · AI receptionist</div>
+    </div>
+    <span class="pill pill-good" style="margin-left:auto" id="chat-status">● online</span>
+  </div>
+  <div class="chat-log" id="chat-log">
+    <div class="msg bot">
+      <div class="bubble">Hi, this is Sarah at Bright Smile Dental — how can I help you today? You can ask about availability or book an appointment.</div>
+    </div>
+  </div>
+  <form class="chat-input" id="chat-form" autocomplete="off">
+    <input id="chat-text" placeholder="Type a message… e.g. What's open on {{ example_date }}?" />
+    <button class="btn btn-primary" id="chat-send" type="submit">Send</button>
+  </form>
+  <div class="chat-hint muted">Tip: try “Book a cleaning on {{ example_date }} at 10am, I'm Alex, my number is +1…”. This drives the real Claude agent, Google Calendar, and booking.</div>
+</div>
+
+<style>
+  .chatbox{display:flex;flex-direction:column;overflow:hidden;max-height:640px}
+  .chat-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+  .chat-avatar{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:800;color:#fff;
+    background:linear-gradient(135deg,var(--teal),var(--teal-dark))}
+  .chat-name{font-weight:800}
+  .chat-sub{font-size:12px;color:var(--muted)}
+  .chat-log{flex:1;overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:12px;background:#fbfdfd;min-height:280px}
+  .msg{display:flex}
+  .msg.user{justify-content:flex-end}
+  .bubble{max-width:78%;padding:11px 15px;border-radius:16px;font-size:14.5px;white-space:pre-wrap;word-wrap:break-word}
+  .msg.bot .bubble{background:#fff;border:1px solid var(--line);border-bottom-left-radius:5px}
+  .msg.user .bubble{background:var(--teal);color:#fff;border-bottom-right-radius:5px}
+  .bubble.typing{color:var(--muted);font-style:italic}
+  .chat-input{display:flex;gap:10px;padding:14px 16px;border-top:1px solid var(--line);background:#fff}
+  .chat-input input{flex:1;padding:12px 14px;border:1px solid var(--line);border-radius:11px;font-size:14.5px;font-family:inherit;outline:none}
+  .chat-input input:focus{border-color:var(--teal)}
+  .chat-hint{padding:0 16px 14px;font-size:12px}
+  .msg.ended .bubble{background:var(--warn-bg);color:var(--warn);border:0;font-weight:600}
+</style>
+
+<script>
+(function(){
+  const log = document.getElementById('chat-log');
+  const form = document.getElementById('chat-form');
+  const input = document.getElementById('chat-text');
+  const sendBtn = document.getElementById('chat-send');
+  // OpenAI-style history sent to the endpoint each turn (Vapi does the same).
+  const history = [];
+
+  function add(role, text, cls){
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (role === 'user' ? 'user' : 'bot') + (cls ? ' ' + cls : '');
+    const b = document.createElement('div');
+    b.className = 'bubble' + (cls === 'typing' ? ' typing' : '');
+    b.textContent = text;
+    wrap.appendChild(b);
+    log.appendChild(wrap);
+    log.scrollTop = log.scrollHeight;
+    return wrap;
+  }
+
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    const text = input.value.trim();
+    if(!text) return;
+    input.value = '';
+    add('user', text);
+    history.push({role:'user', content:text});
+    sendBtn.disabled = true;
+    const typing = add('bot', 'Sarah is typing…', 'typing');
+
+    try{
+      const res = await fetch('/api/vapi/chat/completions/', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ messages: history, stream:false })
+      });
+      const data = await res.json();
+      typing.remove();
+      const reply = (data.choices && data.choices[0] && data.choices[0].message.content) || '(no response)';
+      add('bot', reply);
+      history.push({role:'assistant', content:reply});
+      // If the agent ended the call, show a marker.
+      if(data.choices && data.choices[0] && data.choices[0].finish_reason === 'stop' && /goodbye|have a great day/i.test(reply)){
+        // soft hint only; the endpoint signals end_call internally for Vapi
+      }
+    }catch(err){
+      typing.remove();
+      add('bot', 'Connection error — is the server running?', 'ended');
+    }finally{
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  });
+})();
+</script>
