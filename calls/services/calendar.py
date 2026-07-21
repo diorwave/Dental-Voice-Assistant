@@ -1,0 +1,139 @@
+import logging
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from django.conf import settings
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+
+logger = logging.getLogger(__name__)
+
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+TIMEZONE = "Asia/Karachi"
+
+_calendar_service = None
+
+
+def get_calendar_service():
+    global _calendar_service
+    if _calendar_service is None:
+        creds = service_account.Credentials.from_service_account_file(
+            settings.GOOGLE_CALENDAR_CREDENTIALS, scopes=SCOPES
+        )
+        _calendar_service = build("calendar", "v3", credentials=creds)
+    return _calendar_service
+
+
+def get_calendar_id():
+    return settings.GOOGLE_CALENDAR_ID
+
+
+def check_availability(date: str) -> dict:
+    service = get_calendar_service()
+    calendar_id = get_calendar_id()
+
+    tz = ZoneInfo(TIMEZONE)
+    start_of_day = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), 8, 0, tzinfo=tz)
+    end_of_day = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), 18, 0, tzinfo=tz)
+
+    events = (
+        service.events()
+        .list(
+            calendarId=calendar_id,
+            timeMin=start_of_day.isoformat(),
+            timeMax=end_of_day.isoformat(),
+            singleEvents=True,
+            orderBy="startTime",
+            timeZone=TIMEZONE,
+        )
+        .execute()
+    )
+
+    busy_slots = [
+        (e["start"]["dateTime"], e["end"]["dateTime"])
+        for e in events.get("items", [])
+    ]
+
+    available = []
+    for hour in range(8, 18):
+        for minute in [0, 30]:
+            slot = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), hour, minute, tzinfo=tz)
+            is_busy = any(
+                datetime.fromisoformat(s) <= slot < datetime.fromisoformat(e)
+                for s, e in busy_slots
+            )
+            if not is_busy:
+                available.append(f"{hour:02d}:{minute:02d}")
+
+    return {"date": date, "available_slots": available, "total_available": len(available)}
+
+
+def book_appointment(details: dict) -> dict:
+    from ..models import Appointment
+
+    service = get_calendar_service()
+    calendar_id = get_calendar_id()
+
+    tz = ZoneInfo(TIMEZONE)
+    duration = 60 if details["appointment_type"] == "new_patient" else 30
+    d = details['date']
+    t = details['time']
+    start = datetime(int(d[:4]), int(d[5:7]), int(d[8:10]), int(t[:2]), int(t[3:5]), tzinfo=tz)
+    end = start + timedelta(minutes=duration)
+
+    # Check for existing bookings at this slot to prevent duplicates
+    existing = (
+        service.events()
+        .list(
+            calendarId=calendar_id,
+            timeMin=start.isoformat(),
+            timeMax=end.isoformat(),
+            singleEvents=True,
+            timeZone=TIMEZONE,
+        )
+        .execute()
+    )
+    if existing.get("items"):
+        existing_event = existing["items"][0]
+        logger.info(f"[DUPLICATE] Slot already booked at {details['date']} {details['time']}")
+        return {
+            "success": True,
+            "event_id": existing_event["id"],
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "note": "Appointment was already booked for this slot.",
+        }
+
+    event = (
+        service.events()
+        .insert(
+            calendarId=calendar_id,
+            body={
+                "summary": f"{details['appointment_type'].replace('_', ' ').title()} - {details['patient_name']}",
+                "description": f"Phone: {details['patient_phone']}\nType: {details['appointment_type']}",
+                "start": {"dateTime": start.isoformat(), "timeZone": TIMEZONE},
+                "end": {"dateTime": end.isoformat(), "timeZone": TIMEZONE},
+            },
+        )
+        .execute()
+    )
+
+    # Save appointment to database (prevent DB-level duplicates too)
+    Appointment.objects.get_or_create(
+        date=details["date"],
+        time=details["time"],
+        patient_phone=details["patient_phone"],
+        defaults={
+            "patient_name": details["patient_name"],
+            "appointment_type": details["appointment_type"],
+            "duration_minutes": duration,
+            "google_event_id": event["id"],
+        },
+    )
+    logger.info(f"[BOOKED] {details['patient_name']} on {details['date']} at {details['time']}")
+
+    return {
+        "success": True,
+        "event_id": event["id"],
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+    }
