@@ -1,7 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-TIMEZONE = "Asia/Karachi"
+TIMEZONE = "America/New_York"
 
 def get_receptionist_prompt():
     now = datetime.now(ZoneInfo(TIMEZONE))

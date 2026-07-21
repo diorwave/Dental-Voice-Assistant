@@ -8,7 +8,7 @@ from google.oauth2 import service_account
 logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-TIMEZONE = "Asia/Karachi"
+TIMEZONE = "America/New_York"
 
 _calendar_service = None
 
