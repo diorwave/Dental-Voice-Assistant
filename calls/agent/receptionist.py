@@ -1,12 +1,16 @@
 import json
 import logging
 import os
+from datetime import datetime
+
+from django.conf import settings
 from openai import OpenAI
+
 from .arguments import AvailabilityRequest, BookingRequest, ToolArgumentError
-from .tools import TOOLS
 from .prompts import get_receptionist_prompt
-from ..services.calendar import check_availability, book_appointment
-from ..services.sms import queue_booking_confirmation
+from .tools import TOOLS
+from ..services.calendar import book_appointment, check_availability
+from ..services.sms import queue_booking_confirmation, spoken_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,18 @@ def get_client():
     if _client is None:
         _client = OpenAI()  # reads OPENAI_API_KEY from the environment
     return _client
+
+
+def _complete(messages: list):
+    response = get_client().chat.completions.create(
+        model=MODEL,
+        max_tokens=1024,
+        messages=messages,
+        tools=TOOLS,
+        tool_choice="auto",
+        parallel_tool_calls=False,
+    )
+    return response.choices[0].message
 
 
 def handle_conversation_turn(conversation_history: list, caller_phone: str = None, call_log=None) -> dict:
@@ -38,18 +54,11 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
 
     messages = [{"role": "system", "content": system_prompt}] + list(conversation_history)
 
-    response = get_client().chat.completions.create(
-        model=MODEL,
-        max_tokens=1024,
-        messages=messages,
-        tools=TOOLS,
-        tool_choice="auto",
-        parallel_tool_calls=False,
-    )
-    msg = response.choices[0].message
+    msg = _complete(messages)
 
     should_end_call = False
     last_tool_name = None
+    last_tool_result = None
 
     while msg.tool_calls:
         # Append the assistant turn (with its tool_calls) before the tool results.
@@ -90,7 +99,8 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
                 tool_result = execute_tool(name, args, call_log=call_log)
             except Exception as e:
                 logger.error(f"[TOOL ERROR] {name}: {e}")
-                tool_result = {"error": str(e)}
+                tool_result = {"success": False, "error": "tool_failed", "message": "Temporary problem; apologize and offer to try again."}
+            last_tool_result = tool_result
             logger.info(f"[RESULT] {json.dumps(tool_result)}")
             messages.append({
                 "role": "tool",
@@ -101,33 +111,45 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
         if should_end_call:
             break
 
-        response = get_client().chat.completions.create(
-            model=MODEL,
-            max_tokens=1024,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            parallel_tool_calls=False,
-        )
-        msg = response.choices[0].message
+        msg = _complete(messages)
 
     response_text = (msg.content or "").strip()
 
-    # Fallback: if the model returned empty text after tools, provide a sensible response.
+    # Fallback: if the model returned empty text after tools, say something
+    # that matches what *actually* happened.
     if not response_text:
         if should_end_call:
-            response_text = "Thanks for calling Bright Smile Dental. Have a great day, goodbye!"
+            response_text = f"Thanks for calling {settings.CLINIC_NAME}. Have a great day, goodbye!"
         elif last_tool_name:
             logger.warning(f"[EMPTY RESPONSE] after tool={last_tool_name}, using fallback")
-            if last_tool_name == "book_appointment":
-                response_text = "You're all set! Your appointment is confirmed and I've sent you a text with the details. Is there anything else I can help with?"
-            else:
-                response_text = "Is there anything else I can help you with?"
+            response_text = fallback_reply(last_tool_name, last_tool_result)
 
     return {
         "text": response_text,
         "end_call": should_end_call,
     }
+
+
+def fallback_reply(tool_name: str, result: dict | None) -> str:
+    """A reply grounded in the last tool result, for when the model says nothing."""
+    result = result or {}
+    if tool_name == "book_appointment":
+        if result.get("success"):
+            when = spoken_datetime(datetime.fromisoformat(result["start"]))
+            text = f"You're all set for {when}."
+            if result.get("sms_confirmation") == "queued":
+                text += " You'll get a text confirmation shortly."
+            return text + " Is there anything else I can help with?"
+        alternatives = result.get("alternatives") or []
+        if result.get("error") == "slot_taken" and alternatives:
+            return (
+                f"Sorry, that time isn't available. I could do {' or '.join(alternatives)} instead. "
+                "Would either of those work?"
+            )
+        return "Sorry, I wasn't able to book that just now. Could we try a different time?"
+    if result and result.get("success") is False:
+        return "Sorry, I didn't quite catch that. Could you tell me again?"
+    return "Is there anything else I can help you with?"
 
 
 def execute_tool(name: str, tool_input: dict, call_log=None) -> dict:
@@ -149,8 +171,14 @@ def _dispatch_tool(name: str, tool_input: dict, call_log=None) -> dict:
                 # phone stored on the appointment, queued server-side.
                 from ..models import Appointment
 
-                appointment = Appointment.objects.get(pk=result["appointment_id"])
-                queued = queue_booking_confirmation(appointment)
+                try:
+                    appointment = Appointment.objects.get(pk=result["appointment_id"])
+                    queued = queue_booking_confirmation(appointment)
+                except Exception:
+                    # The booking itself succeeded; never report it as failed
+                    # because the confirmation text couldn't be queued.
+                    logger.exception("[SMS] could not queue confirmation for appointment id=%s", result["appointment_id"])
+                    queued = False
                 result["sms_confirmation"] = "queued" if queued else "not_sent"
             return result
         case _:
