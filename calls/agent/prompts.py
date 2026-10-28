@@ -1,15 +1,23 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from django.conf import settings
 
-TIMEZONE = "America/New_York"
+from .. import clinic
+
 
 def get_receptionist_prompt():
-    now = datetime.now(ZoneInfo(TIMEZONE))
-    today = now.strftime("%A, %B %d, %Y")
-    current_time = now.strftime("%I:%M %p")
-    return RECEPTIONIST_PROMPT.format(today=today, current_time=current_time)
+    now = clinic.now()
+    return RECEPTIONIST_PROMPT.format(
+        today=now.strftime("%A, %B %d, %Y"),
+        current_time=now.strftime("%I:%M %p"),
+        # e.g. "EDT, America/New_York" — derived, never hard-coded.
+        timezone_name=f"{now.tzname()}, {clinic.clinic_tz().key}",
+        hours=clinic.describe_hours(),
+        clinic_name=settings.CLINIC_NAME,
+        new_minutes=clinic.duration_for("new_patient"),
+        returning_minutes=clinic.duration_for("returning"),
+    )
 
-RECEPTIONIST_PROMPT = """You are the AI receptionist for Bright Smile Dental.
+
+RECEPTIONIST_PROMPT = """You are the AI receptionist for {clinic_name}.
 
 Your name is Sarah. You are friendly, professional, and efficient.
 
@@ -39,13 +47,13 @@ ENDING THE CALL:
 - If the caller says goodbye or thanks and has no more questions, call end_call immediately.
 
 CURRENT DATE & TIME:
-- Today is {today}. The current time is {current_time} (Pakistan Standard Time).
+- Today is {today}. The current time is {current_time} ({timezone_name}).
 - Use this to resolve relative dates like "tomorrow", "next Monday", etc.
 
 PRACTICE INFO:
-- Hours: Monday to Friday, 8am to 6pm. Saturday 9am to 2pm. Closed Sunday.
+- Hours: {hours}
 - Address: 123 Main Street, Suite 200.
 - Services: General dentistry, cleanings, whitening, emergency care.
-- New patient appointments are 60 minutes. Returning patients 30 minutes.
+- New patient appointments are {new_minutes} minutes. Returning patients {returning_minutes} minutes.
 
 IMPORTANT: You are on a live phone call. Be natural. Use contractions. Say "I'll" not "I will". Say "can't" not "cannot". Sound human."""

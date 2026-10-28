@@ -1,14 +1,14 @@
 import logging
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 from django.conf import settings
+
+from .. import clinic
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
 logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-TIMEZONE = "America/New_York"
 
 _calendar_service = None
 
@@ -31,7 +31,7 @@ def check_availability(date: str) -> dict:
     service = get_calendar_service()
     calendar_id = get_calendar_id()
 
-    tz = ZoneInfo(TIMEZONE)
+    tz = clinic.clinic_tz()
     start_of_day = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), 8, 0, tzinfo=tz)
     end_of_day = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), 18, 0, tzinfo=tz)
 
@@ -43,7 +43,7 @@ def check_availability(date: str) -> dict:
             timeMax=end_of_day.isoformat(),
             singleEvents=True,
             orderBy="startTime",
-            timeZone=TIMEZONE,
+            timeZone=tz.key,
         )
         .execute()
     )
@@ -73,7 +73,7 @@ def book_appointment(details: dict) -> dict:
     service = get_calendar_service()
     calendar_id = get_calendar_id()
 
-    tz = ZoneInfo(TIMEZONE)
+    tz = clinic.clinic_tz()
     duration = 60 if details["appointment_type"] == "new_patient" else 30
     d = details['date']
     t = details['time']
@@ -88,7 +88,7 @@ def book_appointment(details: dict) -> dict:
             timeMin=start.isoformat(),
             timeMax=end.isoformat(),
             singleEvents=True,
-            timeZone=TIMEZONE,
+            timeZone=tz.key,
         )
         .execute()
     )
@@ -110,8 +110,8 @@ def book_appointment(details: dict) -> dict:
             body={
                 "summary": f"{details['appointment_type'].replace('_', ' ').title()} - {details['patient_name']}",
                 "description": f"Phone: {details['patient_phone']}\nType: {details['appointment_type']}",
-                "start": {"dateTime": start.isoformat(), "timeZone": TIMEZONE},
-                "end": {"dateTime": end.isoformat(), "timeZone": TIMEZONE},
+                "start": {"dateTime": start.isoformat(), "timeZone": tz.key},
+                "end": {"dateTime": end.isoformat(), "timeZone": tz.key},
             },
         )
         .execute()

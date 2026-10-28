@@ -88,8 +88,26 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# ─── Clinic ──────────────────────────────────────────────────
+# The clinic's local timezone drives the agent's clock, calendar slots and the
+# dashboard's notion of "today". Keep Django's TIME_ZONE in sync with it.
+CLINIC_TIMEZONE = os.getenv("CLINIC_TIMEZONE", "America/New_York")
+CLINIC_NAME = os.getenv("CLINIC_NAME", "Bright Smile Dental")
+
+# Opening hours keyed by weekday (Monday=0 … Sunday=6). Omit a day = closed.
+CLINIC_BUSINESS_HOURS = {
+    0: ("08:00", "18:00"),
+    1: ("08:00", "18:00"),
+    2: ("08:00", "18:00"),
+    3: ("08:00", "18:00"),
+    4: ("08:00", "18:00"),
+    5: ("09:00", "14:00"),
+}
+CLINIC_APPOINTMENT_DURATIONS = {"new_patient": 60, "returning": 30, "emergency": 30}
+CLINIC_SLOT_INTERVAL_MINUTES = 30
+
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+TIME_ZONE = CLINIC_TIMEZONE
 USE_I18N = True
 USE_TZ = True
 
