@@ -4,10 +4,9 @@ import os
 from openai import OpenAI
 from .arguments import AvailabilityRequest, BookingRequest, ToolArgumentError
 from .tools import TOOLS
-from ..background import run_in_background
 from .prompts import get_receptionist_prompt
 from ..services.calendar import check_availability, book_appointment
-from ..services.sms import send_sms
+from ..services.sms import queue_booking_confirmation
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
     """
     system_prompt = get_receptionist_prompt()
     if caller_phone:
-        system_prompt += f"\n\nCALLER INFO:\n- The caller's phone number is {caller_phone}. Use this number for booking and SMS by default. Just confirm: \"We'll send a confirmation to the number you're calling from. Would you like it sent to a different number instead?\""
+        system_prompt += f"\n\nCALLER INFO:\n- The caller's phone number is {caller_phone}. Use this number for the booking by default. Just confirm: \"We'll text the confirmation to the number you're calling from. Would you like it sent to a different number instead?\""
 
     messages = [{"role": "system", "content": system_prompt}] + list(conversation_history)
 
@@ -120,7 +119,7 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
             response_text = "Thanks for calling Bright Smile Dental. Have a great day, goodbye!"
         elif last_tool_name:
             logger.warning(f"[EMPTY RESPONSE] after tool={last_tool_name}, using fallback")
-            if last_tool_name in ("book_appointment", "send_sms"):
+            if last_tool_name == "book_appointment":
                 response_text = "You're all set! Your appointment is confirmed and I've sent you a text with the details. Is there anything else I can help with?"
             else:
                 response_text = "Is there anything else I can help you with?"
@@ -144,11 +143,15 @@ def _dispatch_tool(name: str, tool_input: dict, call_log=None) -> dict:
         case "check_availability":
             return check_availability(AvailabilityRequest.from_args(tool_input))
         case "book_appointment":
-            return book_appointment(BookingRequest.from_args(tool_input), call=call_log)
-        case "send_sms":
-            # Send in the background so Twilio latency (5-10s) doesn't trip
-            # Vapi's idle timeout.
-            run_in_background(send_sms, tool_input["to"], tool_input["message"])
-            return {"success": True, "message": "SMS is being sent"}
+            result = book_appointment(BookingRequest.from_args(tool_input), call=call_log)
+            if result.get("success") and not result.get("already_booked"):
+                # The only text we ever send: a fixed-template confirmation to the
+                # phone stored on the appointment, queued server-side.
+                from ..models import Appointment
+
+                appointment = Appointment.objects.get(pk=result["appointment_id"])
+                queued = queue_booking_confirmation(appointment)
+                result["sms_confirmation"] = "queued" if queued else "not_sent"
+            return result
         case _:
-            return {"error": f"Unknown tool: {name}"}
+            return {"success": False, "error": "unknown_tool", "message": f"Unknown tool: {name}"}
