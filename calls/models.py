@@ -2,7 +2,11 @@ from django.db import models
 
 
 class CallLog(models.Model):
-    caller_phone = models.CharField(max_length=20)
+    # Vapi's call id. Unique so the per-turn upsert and the end-of-call webhook
+    # write to the same row instead of creating duplicates. Null for legacy rows
+    # and for reports that arrive without an id.
+    vapi_call_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    caller_phone = models.CharField(max_length=20, blank=True)
     call_summary = models.TextField(blank=True)
     appointment_booked = models.BooleanField(default=False)
     duration_seconds = models.IntegerField(null=True, blank=True)
@@ -35,6 +39,9 @@ class Appointment(models.Model):
     duration_minutes = models.IntegerField(default=30)
     status = models.CharField(max_length=10, choices=STATUSES, default=STATUS_BOOKED)
     google_event_id = models.CharField(max_length=255, blank=True)
+    call = models.ForeignKey(
+        CallLog, null=True, blank=True, on_delete=models.SET_NULL, related_name="appointments"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

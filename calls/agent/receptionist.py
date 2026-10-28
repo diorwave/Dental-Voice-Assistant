@@ -8,7 +8,6 @@ from .tools import TOOLS
 from .prompts import get_receptionist_prompt
 from ..services.calendar import check_availability, book_appointment
 from ..services.sms import send_sms
-from ..services.database import log_call
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +24,14 @@ def get_client():
     return _client
 
 
-def handle_conversation_turn(conversation_history: list, caller_phone: str = None) -> dict:
+def handle_conversation_turn(conversation_history: list, caller_phone: str = None, call_log=None) -> dict:
     """Run the agentic loop — the model keeps calling tools until done.
     Returns {"text": str, "end_call": bool}.
 
     `conversation_history` is a list of OpenAI-format messages with string
     content (role: "user" | "assistant"), as prepared by views.py.
+    `call_log` is the CallLog for the live Vapi call (None for the web tester);
+    appointments booked during the turn are linked to it.
     """
     system_prompt = get_receptionist_prompt()
     if caller_phone:
@@ -87,7 +88,7 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
             last_tool_name = name
             logger.info(f"[TOOL] {name} {json.dumps(args)}")
             try:
-                tool_result = execute_tool(name, args)
+                tool_result = execute_tool(name, args, call_log=call_log)
             except Exception as e:
                 logger.error(f"[TOOL ERROR] {name}: {e}")
                 tool_result = {"error": str(e)}
@@ -130,20 +131,20 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
     }
 
 
-def execute_tool(name: str, tool_input: dict) -> dict:
+def execute_tool(name: str, tool_input: dict, call_log=None) -> dict:
     try:
-        return _dispatch_tool(name, tool_input)
+        return _dispatch_tool(name, tool_input, call_log)
     except ToolArgumentError as e:
         # Structured, recoverable error: the model can ask the caller to clarify.
         return e.as_result()
 
 
-def _dispatch_tool(name: str, tool_input: dict) -> dict:
+def _dispatch_tool(name: str, tool_input: dict, call_log=None) -> dict:
     match name:
         case "check_availability":
             return check_availability(AvailabilityRequest.from_args(tool_input))
         case "book_appointment":
-            return book_appointment(BookingRequest.from_args(tool_input))
+            return book_appointment(BookingRequest.from_args(tool_input), call=call_log)
         case "send_sms":
             # Fire SMS in background to avoid blocking the voice response.
             # Twilio can take 5-10s which triggers VAPI idle timeout.
@@ -153,8 +154,5 @@ def _dispatch_tool(name: str, tool_input: dict) -> dict:
                 daemon=True,
             ).start()
             return {"success": True, "message": "SMS is being sent"}
-        case "log_call":
-            threading.Thread(target=log_call, args=(tool_input,)).start()
-            return {"success": True, "message": "Call logged"}
         case _:
             return {"error": f"Unknown tool: {name}"}

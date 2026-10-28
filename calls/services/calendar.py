@@ -239,8 +239,9 @@ def check_availability(request: AvailabilityRequest) -> dict:
     }
 
 
-def book_appointment(request: BookingRequest) -> dict:
+def book_appointment(request: BookingRequest, call=None) -> dict:
     from ..models import Appointment
+    from .database import mark_appointment_booked
 
     tz = clinic.clinic_tz()
     now = clinic.now()
@@ -286,6 +287,7 @@ def book_appointment(request: BookingRequest) -> dict:
                 patient_phone=request.patient_phone,
                 appointment_type=request.appointment_type,
                 duration_minutes=duration,
+                call=call,
             )
     except IntegrityError:
         busy = busy_intervals(request.date) + _db_busy_intervals(request.date)
@@ -313,6 +315,7 @@ def book_appointment(request: BookingRequest) -> dict:
 
     appointment.google_event_id = event["id"]
     appointment.save(update_fields=["google_event_id"])
+    mark_appointment_booked(call)
     logger.info("[BOOKED] appointment id=%s on %s at %s", appointment.pk, request.date, request.time)
     return _booked_result(appointment, start, end)
 
