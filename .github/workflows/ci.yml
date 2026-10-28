@@ -44,3 +44,17 @@ jobs:
 
       - name: Run tests
         run: python manage.py test --verbosity 2
+        env:
+          LOG_LEVEL: WARNING
+
+      - name: Production settings check
+        # Fails on any `check --deploy` warning with production-like settings.
+        env:
+          DEBUG: "False"
+          ALLOWED_HOSTS: "receptionist.example.com"
+          SECURE_HSTS_INCLUDE_SUBDOMAINS: "True"
+          SECURE_HSTS_PRELOAD: "True"
+        run: |
+          SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')" \
+          VAPI_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')" \
+            python manage.py check --deploy --fail-level WARNING
