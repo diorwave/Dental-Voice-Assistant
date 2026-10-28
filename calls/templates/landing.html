@@ -83,7 +83,7 @@
   <div class="wrap try-grid">
     <div>
       <h2 class="sec">Try it right now</h2>
-      <p class="sec-sub">Chat with Sarah below — it runs the exact same AI, calendar, and booking your phone line uses.</p>
+      <p class="sec-sub">Talk or chat with Sarah — it runs the exact same AI, calendar, and booking your phone line uses.</p>
       <div class="hours card" style="padding:22px;display:block">
         <h3 style="margin:0 0 12px">Office hours</h3>
         <div class="row"><span>Mon – Fri</span><strong>8:00 AM – 6:00 PM</strong></div>
@@ -92,7 +92,17 @@
         <div class="row" style="border:0"><span>Address</span><strong>123 Main Street, Suite 200</strong></div>
       </div>
     </div>
-    <div>{% include "_chat_widget.html" %}</div>
+    <div>
+      {% if user.is_staff %}
+        {% include "_chat_widget.html" %}
+      {% else %}
+        <div class="card" style="padding:22px">
+          <h3 style="margin:0 0 8px">Text chat demo</h3>
+          <p class="muted" style="margin:0 0 14px">The text chat books real appointments, so it's available to clinic staff. Use the voice demo above, or sign in to try it.</p>
+          <a class="btn btn-primary" href="{% url 'chat' %}">Staff sign-in</a>
+        </div>
+      {% endif %}
+    </div>
   </div>
 </section>
 

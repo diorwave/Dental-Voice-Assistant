@@ -17,7 +17,7 @@
     <input id="chat-text" placeholder="Type a message… e.g. What's open on {{ example_date }}?" />
     <button class="btn btn-primary" id="chat-send" type="submit">Send</button>
   </form>
-  <div class="chat-hint muted">Tip: try “Book a cleaning on {{ example_date }} at 10am, I'm Alex, my number is +1…”. This drives the real Claude agent, Google Calendar, and booking.</div>
+  <div class="chat-hint muted">Tip: try “Book a cleaning on {{ example_date }} at 10am, I'm Alex, my number is +1…”. This drives the real agent, Google Calendar, and booking.</div>
 </div>
 
 <style>
@@ -75,11 +75,20 @@
     try{
       const res = await fetch('/api/vapi/chat/completions/', {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        // Staff-session auth: the API enforces CSRF for cookie-authenticated requests.
+        headers:{'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
+        credentials:'same-origin',
         body: JSON.stringify({ messages: history, stream:false })
       });
-      const data = await res.json();
       typing.remove();
+      if(!res.ok){
+        const msg = res.status === 429 ? 'Too many messages — please wait a minute.'
+          : (res.status === 401 || res.status === 403) ? 'Your session expired — please sign in again.'
+          : 'Something went wrong (' + res.status + ').';
+        add('bot', msg, 'ended');
+        return;
+      }
+      const data = await res.json();
       const reply = (data.choices && data.choices[0] && data.choices[0].message.content) || '(no response)';
       add('bot', reply);
       history.push({role:'assistant', content:reply});
