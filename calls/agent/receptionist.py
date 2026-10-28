@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from datetime import datetime
 
 from django.conf import settings
@@ -23,7 +24,9 @@ def get_client():
     """Lazily create the OpenAI client so the app can boot without a key set."""
     global _client
     if _client is None:
-        _client = OpenAI()  # reads OPENAI_API_KEY from the environment
+        # Reads OPENAI_API_KEY from the environment. Bounded timeout/retries so a
+        # slow upstream can't stall the call past Vapi's response window.
+        _client = OpenAI(timeout=settings.OPENAI_TIMEOUT_SECONDS, max_retries=settings.OPENAI_MAX_RETRIES)
     return _client
 
 
@@ -54,13 +57,25 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
 
     messages = [{"role": "system", "content": system_prompt}] + list(conversation_history)
 
+    started = time.monotonic()
     msg = _complete(messages)
+    model_calls = 1
 
     should_end_call = False
+    hit_iteration_cap = False
     last_tool_name = None
     last_tool_result = None
+    iterations = 0
 
     while msg.tool_calls:
+        if iterations >= settings.AGENT_MAX_TOOL_ITERATIONS:
+            # The model keeps calling tools (e.g. re-checking availability in a
+            # loop). Stop, and answer from what we already know.
+            logger.warning("[AGENT] tool iteration cap (%s) reached", settings.AGENT_MAX_TOOL_ITERATIONS)
+            hit_iteration_cap = True
+            break
+        iterations += 1
+
         # Append the assistant turn (with its tool_calls) before the tool results.
         messages.append({
             "role": "assistant",
@@ -112,6 +127,7 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
             break
 
         msg = _complete(messages)
+        model_calls += 1
 
     response_text = (msg.content or "").strip()
 
@@ -123,6 +139,13 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
         elif last_tool_name:
             logger.warning(f"[EMPTY RESPONSE] after tool={last_tool_name}, using fallback")
             response_text = fallback_reply(last_tool_name, last_tool_result)
+        elif hit_iteration_cap:
+            response_text = "Sorry, give me just a moment. Could you tell me again what you'd like to do?"
+
+    logger.info(
+        "[AGENT] turn done in %dms (model_calls=%d tool_iterations=%d capped=%s)",
+        (time.monotonic() - started) * 1000, model_calls, iterations, hit_iteration_cap,
+    )
 
     return {
         "text": response_text,
