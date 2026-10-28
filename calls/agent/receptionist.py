@@ -1,10 +1,10 @@
 import json
 import logging
 import os
-import threading
 from openai import OpenAI
 from .arguments import AvailabilityRequest, BookingRequest, ToolArgumentError
 from .tools import TOOLS
+from ..background import run_in_background
 from .prompts import get_receptionist_prompt
 from ..services.calendar import check_availability, book_appointment
 from ..services.sms import send_sms
@@ -146,13 +146,9 @@ def _dispatch_tool(name: str, tool_input: dict, call_log=None) -> dict:
         case "book_appointment":
             return book_appointment(BookingRequest.from_args(tool_input), call=call_log)
         case "send_sms":
-            # Fire SMS in background to avoid blocking the voice response.
-            # Twilio can take 5-10s which triggers VAPI idle timeout.
-            threading.Thread(
-                target=send_sms,
-                args=(tool_input["to"], tool_input["message"]),
-                daemon=True,
-            ).start()
+            # Send in the background so Twilio latency (5-10s) doesn't trip
+            # Vapi's idle timeout.
+            run_in_background(send_sms, tool_input["to"], tool_input["message"])
             return {"success": True, "message": "SMS is being sent"}
         case _:
             return {"error": f"Unknown tool: {name}"}

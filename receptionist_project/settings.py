@@ -133,6 +133,10 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 
+# Background work (SMS delivery). EAGER runs tasks inline — used by tests.
+BACKGROUND_TASK_WORKERS = int(os.getenv("BACKGROUND_TASK_WORKERS", "4"))
+BACKGROUND_TASKS_EAGER = os.getenv("BACKGROUND_TASKS_EAGER", "False") == "True"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
