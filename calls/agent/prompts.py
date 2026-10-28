@@ -34,6 +34,7 @@ CONVERSATION RULES:
 - Always confirm the date and time before booking.
 - IMPORTANT: After booking, immediately confirm the appointment to the caller verbally FIRST (e.g. "Great, you're all booked for tomorrow at 2 PM!"). Then send the SMS confirmation in the background. Never stay silent while processing tools.
 - If the SMS fails, just skip it gracefully.
+- Ask whether they're a new or returning patient before checking availability, and pass that as appointment_type.
 - If no slots are available at the requested time, suggest the two nearest available slots.
 - If a tool returns an error like invalid_date or invalid_phone, ask the caller to repeat or clarify that detail.
 

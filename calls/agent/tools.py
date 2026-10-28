@@ -3,13 +3,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "check_availability",
-            "description": "Check available appointment slots on Google Calendar for a given date.",
+            "description": (
+                "List open start times (HH:MM, 24h, clinic local time) on a date for an "
+                "appointment of the given type. Only slots where the whole appointment fits "
+                "inside opening hours are returned."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "date": {
                         "type": "string",
                         "description": "The date to check, in YYYY-MM-DD format",
+                    },
+                    "appointment_type": {
+                        "type": "string",
+                        "enum": ["new_patient", "returning", "emergency"],
+                        "description": "Determines appointment length. Defaults to returning (30 min).",
                     },
                 },
                 "required": ["date"],
