@@ -1,0 +1,13 @@
+# Local development overrides — merged automatically by `docker compose up`.
+# Not for production (see docker-compose.yml).
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"   # loopback only
+
+  web:
+    environment:
+      DEBUG: "True"
+    volumes:
+      - .:/app
+    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"

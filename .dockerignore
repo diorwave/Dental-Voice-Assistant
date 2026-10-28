@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+*.sqlite3
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+staticfiles/
+media/
+# Credentials are mounted at runtime, never baked into the image.
+google-calendar-credentials.json
+*.log
+.DS_Store

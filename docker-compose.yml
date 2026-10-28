@@ -1,20 +1,24 @@
+# Production-style stack. For local development, docker-compose.override.yml is
+# merged automatically by `docker compose up` (DEBUG, live code reload, local
+# Postgres port). Run production without it:
+#   docker compose -f docker-compose.yml up -d --build
 services:
   db:
     image: postgres:15
     container_name: ai-receptionist-db
     environment:
-      POSTGRES_DB: ai_receptionist
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${DB_NAME:-ai_receptionist}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # No published port: only the web service can reach the database.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   web:
     build: .
@@ -22,14 +26,11 @@ services:
     env_file:
       - .env
     environment:
+      DEBUG: "False"   # production stack; the dev override turns it back on
       DB_HOST: db
       DB_PORT: 5432
-      DB_NAME: ai_receptionist
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DEBUG: "True"
     volumes:
-      - .:/app
+      - ./google-calendar-credentials.json:/app/google-calendar-credentials.json:ro
     ports:
       - "8000:8000"
     depends_on:

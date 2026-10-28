@@ -60,7 +60,7 @@ Beyond the phone line, the app serves a browser UI (Django templates — no buil
 | Page | URL | What it is |
 |------|-----|-----------|
 | **Landing** | `/` | Marketing page with a live **voice call** widget (opens a window that shows the running transcript of both caller and Sarah) |
-| **Chat with Sarah** | `/chat/` | Text chat tester — drives the same agent, calendar, and booking the phone line uses |
+| **Chat with Sarah** | `/chat/` | Staff-only text chat tester — drives the same agent, calendar, and booking the phone line uses |
 | **Dashboard** | `/dashboard/` | Login-protected staff view — KPI cards (calls, bookings, conversion) plus appointment and call-log tables |
 | **Django Admin** | `/admin/` | Raw record management |
 
@@ -89,7 +89,7 @@ Paste the output into `.env` as `SECRET_KEY`.
 ```dotenv
 SECRET_KEY=your-generated-secret-key
 DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,*
+ALLOWED_HOSTS=localhost,127.0.0.1
 
 # Use a local SQLite file (no Postgres/Docker needed). Leave blank to use Postgres below.
 USE_SQLITE=True
@@ -147,11 +147,15 @@ USE_SQLITE=True python manage.py runserver 0.0.0.0:8000
 **Option B — Docker Compose with PostgreSQL** (leave `USE_SQLITE` blank in `.env`):
 
 ```bash
-docker compose up --build
+docker compose up --build        # also loads docker-compose.override.yml (dev: DEBUG, live reload)
 docker compose exec web python manage.py createsuperuser
 ```
 
-Both serve on `http://localhost:8000`. Open `/` for the landing page, `/chat/` to test, `/dashboard/` for staff.
+Place `google-calendar-credentials.json` in the project root first; it is
+mounted read-only into the container (if it's missing, Docker creates an empty
+directory in its place).
+
+Both serve on `http://localhost:8000`. Open `/` for the landing page; staff sign in (create a user with `createsuperuser`) for `/chat/` and `/dashboard/`.
 
 ### 6. Verify it works
 
@@ -161,8 +165,10 @@ curl http://localhost:8000/api/vapi/webhook/
 # → {"status": "ok", "service": "AI Voice Receptionist"}
 
 # The agent endpoint (OpenAI-format request/response)
+# The agent endpoint requires the shared secret (VAPI_SECRET in .env)
 curl -X POST http://localhost:8000/api/vapi/chat/completions/ \
   -H "Content-Type: application/json" \
+  -H "X-Vapi-Secret: $VAPI_SECRET" \
   -d '{"messages":[{"role":"user","content":"What times are open tomorrow?"}]}'
 ```
 
@@ -183,7 +189,11 @@ ngrok http 8000        # copy the https://...ngrok-free.app URL
    ```
    https://your-ngrok-url.ngrok-free.app/api/vapi/webhook/
    ```
-4. Assign a phone number, or use **Talk to Assistant** (web mic) to test.
+   Set the server **Secret** to your `VAPI_SECRET`; Vapi sends it as `X-Vapi-Secret`.
+4. For the Custom LLM, add a custom-LLM credential whose API key is the same
+   `VAPI_SECRET`; Vapi sends it as `Authorization: Bearer <secret>`. Requests
+   without a valid secret get `401`.
+5. Assign a phone number, or use **Talk to Assistant** (web mic) to test.
 
 > **Important:** the Custom LLM URL is the **base** (`/api/vapi`), not the full `/chat/completions/` path — Vapi appends that. Django then calls OpenAI, runs the tools, and returns the reply. Vapi only handles voice (STT/TTS).
 
@@ -203,11 +213,11 @@ ai-voice-agent/
 │   ├── templates/               # base, landing, chat, dashboard, chat widget
 │   ├── agent/
 │   │   ├── receptionist.py      # OpenAI agentic loop (the brain)
-│   │   ├── tools.py             # OpenAI tool schemas (calendar, SMS, DB, end call)
+│   │   ├── tools.py             # OpenAI tool schemas (availability, booking, end call)
 │   │   └── prompts.py           # System prompt (Sarah @ Bright Smile Dental)
 │   └── services/
 │       ├── calendar.py          # Google Calendar API
-│       ├── sms.py               # Twilio SMS
+│       ├── sms.py               # Twilio booking confirmations (server-side only)
 │       └── database.py          # Call logging
 ├── docker-compose.yml
 ├── Dockerfile
@@ -219,8 +229,8 @@ ai-voice-agent/
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/vapi/chat/completions/` | Custom LLM — receives messages from Vapi, calls OpenAI + tools, returns an OpenAI-format response |
-| `POST /api/vapi/webhook/` | Webhook — receives end-of-call reports, logs calls to the DB |
+| `POST /api/vapi/chat/completions/` | Custom LLM — receives messages from Vapi, calls OpenAI + tools, returns an OpenAI-format response. Requires `VAPI_SECRET` (or a staff session + CSRF for the chat tester) |
+| `POST /api/vapi/webhook/` | Webhook — receives end-of-call reports, logs calls to the DB. Requires `VAPI_SECRET` |
 | `GET /api/vapi/webhook/` | Health check |
 | `GET /`, `/chat/`, `/dashboard/` | Frontend pages |
 
@@ -234,6 +244,46 @@ railway up
 ```
 
 Set your environment variables in the host dashboard, then update the Vapi Custom LLM base URL and Server URL to your deployed domain.
+
+Production checklist:
+
+- `DEBUG` is off by default; set a strong `SECRET_KEY` (the app refuses to
+  start without one), your domain in `ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS`,
+  and `VAPI_SECRET`.
+- The container runs `migrate` (committed migrations only) and serves with
+  gunicorn; static files are collected at build time and served by WhiteNoise.
+- HTTPS redirect, secure cookies and HSTS are on when `DEBUG` is off; TLS is
+  expected to terminate at your proxy/platform (`X-Forwarded-Proto`).
+- Self-hosting with Compose: `docker compose -f docker-compose.yml up -d --build`
+  (skips the dev override, forces `DEBUG=False`; Postgres isn't published to
+  the host and `DB_PASSWORD` is required). Put a TLS-terminating reverse proxy
+  (Caddy, nginx, Traefik) in front of port 8000 and don't expose 8000
+  publicly: without one every request is redirected to HTTPS, and
+  `X-Forwarded-Proto` must only ever come from your proxy.
+- Cancel an appointment by deleting its Google Calendar event; the slot is
+  released the next time that day is checked or booked.
+- `python manage.py check --deploy` should report no issues (CI enforces this).
+
+## Privacy & Patient Data
+
+Callers share names and phone numbers, and call summaries/transcripts can
+contain health information. In the US this is PHI under HIPAA.
+
+- **Logs**: INFO-level logs contain tool names, outcomes and masked phone
+  numbers (`***4567`) only. Masked tool payloads are logged at `DEBUG`; don't
+  run production at `LOG_LEVEL=DEBUG`.
+- **Retention**: `python manage.py purge_call_data` clears call
+  summaries/transcripts and masks caller numbers on call logs older than
+  `CALL_DATA_RETENTION_DAYS` (default 90). `--appointments` also anonymizes
+  past appointments; `--dry-run` previews. Schedule it daily (cron, a platform
+  scheduler, etc.).
+- **Google Calendar**: booked events include the patient's name and phone so
+  staff can reach them. Use a calendar in a Google Workspace account covered
+  by a BAA and restrict who can see it.
+- **Vendors**: patient data flows to OpenAI (LLM), Vapi (voice/STT/TTS),
+  Twilio (SMS) and Google (Calendar). If you handle PHI, sign a Business
+  Associate Agreement with each vendor (and your host/database provider)
+  before going live, and enable any zero-retention options they offer.
 
 ## License
 
