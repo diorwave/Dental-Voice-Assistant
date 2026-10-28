@@ -5,8 +5,6 @@ import time
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from .agent.receptionist import handle_conversation_turn
-from .services.calendar import check_availability, book_appointment
-from .services.sms import send_sms
 from .services.database import log_call
 
 logger = logging.getLogger(__name__)
@@ -215,16 +213,3 @@ def vapi_webhook(request):
 
     return JsonResponse({})
 
-
-def execute_tool(name: str, tool_input: dict) -> dict:
-    match name:
-        case "check_availability":
-            return check_availability(tool_input["date"])
-        case "book_appointment":
-            return book_appointment(tool_input)
-        case "send_sms":
-            return send_sms(tool_input["to"], tool_input["message"])
-        case "log_call":
-            return log_call(tool_input)
-        case _:
-            return {"error": f"Unknown tool: {name}"}

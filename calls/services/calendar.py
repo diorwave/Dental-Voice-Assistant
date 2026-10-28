@@ -1,8 +1,9 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from django.conf import settings
 
 from .. import clinic
+from ..agent.arguments import AvailabilityRequest, BookingRequest
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
@@ -27,13 +28,14 @@ def get_calendar_id():
     return settings.GOOGLE_CALENDAR_ID
 
 
-def check_availability(date: str) -> dict:
+def check_availability(request: AvailabilityRequest) -> dict:
     service = get_calendar_service()
     calendar_id = get_calendar_id()
 
     tz = clinic.clinic_tz()
-    start_of_day = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), 8, 0, tzinfo=tz)
-    end_of_day = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), 18, 0, tzinfo=tz)
+    day = request.date
+    start_of_day = datetime.combine(day, time(8, 0), tz)
+    end_of_day = datetime.combine(day, time(18, 0), tz)
 
     events = (
         service.events()
@@ -56,7 +58,7 @@ def check_availability(date: str) -> dict:
     available = []
     for hour in range(8, 18):
         for minute in [0, 30]:
-            slot = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), hour, minute, tzinfo=tz)
+            slot = datetime.combine(day, time(hour, minute), tz)
             is_busy = any(
                 datetime.fromisoformat(s) <= slot < datetime.fromisoformat(e)
                 for s, e in busy_slots
@@ -64,20 +66,18 @@ def check_availability(date: str) -> dict:
             if not is_busy:
                 available.append(f"{hour:02d}:{minute:02d}")
 
-    return {"date": date, "available_slots": available, "total_available": len(available)}
+    return {"date": day.isoformat(), "available_slots": available, "total_available": len(available)}
 
 
-def book_appointment(details: dict) -> dict:
+def book_appointment(request: BookingRequest) -> dict:
     from ..models import Appointment
 
     service = get_calendar_service()
     calendar_id = get_calendar_id()
 
     tz = clinic.clinic_tz()
-    duration = 60 if details["appointment_type"] == "new_patient" else 30
-    d = details['date']
-    t = details['time']
-    start = datetime(int(d[:4]), int(d[5:7]), int(d[8:10]), int(t[:2]), int(t[3:5]), tzinfo=tz)
+    duration = clinic.duration_for(request.appointment_type)
+    start = datetime.combine(request.date, request.time, tz)
     end = start + timedelta(minutes=duration)
 
     # Check for existing bookings at this slot to prevent duplicates
@@ -94,7 +94,7 @@ def book_appointment(details: dict) -> dict:
     )
     if existing.get("items"):
         existing_event = existing["items"][0]
-        logger.info(f"[DUPLICATE] Slot already booked at {details['date']} {details['time']}")
+        logger.info(f"[DUPLICATE] Slot already booked at {request.date} {request.time}")
         return {
             "success": True,
             "event_id": existing_event["id"],
@@ -108,8 +108,8 @@ def book_appointment(details: dict) -> dict:
         .insert(
             calendarId=calendar_id,
             body={
-                "summary": f"{details['appointment_type'].replace('_', ' ').title()} - {details['patient_name']}",
-                "description": f"Phone: {details['patient_phone']}\nType: {details['appointment_type']}",
+                "summary": f"{request.appointment_type.replace('_', ' ').title()} - {request.patient_name}",
+                "description": f"Phone: {request.patient_phone}\nType: {request.appointment_type}",
                 "start": {"dateTime": start.isoformat(), "timeZone": tz.key},
                 "end": {"dateTime": end.isoformat(), "timeZone": tz.key},
             },
@@ -119,17 +119,17 @@ def book_appointment(details: dict) -> dict:
 
     # Save appointment to database (prevent DB-level duplicates too)
     Appointment.objects.get_or_create(
-        date=details["date"],
-        time=details["time"],
-        patient_phone=details["patient_phone"],
+        date=request.date,
+        time=request.time,
+        patient_phone=request.patient_phone,
         defaults={
-            "patient_name": details["patient_name"],
-            "appointment_type": details["appointment_type"],
+            "patient_name": request.patient_name,
+            "appointment_type": request.appointment_type,
             "duration_minutes": duration,
             "google_event_id": event["id"],
         },
     )
-    logger.info(f"[BOOKED] {details['patient_name']} on {details['date']} at {details['time']}")
+    logger.info(f"[BOOKED] {request.patient_name} on {request.date} at {request.time}")
 
     return {
         "success": True,
