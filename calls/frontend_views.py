@@ -2,11 +2,13 @@
 
 These render Django templates and are separate from the JSON API views in views.py
 that Vapi calls. The chat tester and voice widget both drive the same
-/api/vapi/chat/completions/ endpoint the phone line uses.
+/api/vapi/chat/completions/ endpoint the phone line uses; the text chat tester
+is only rendered for staff because it authenticates with the staff session.
 """
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.utils import timezone
@@ -27,7 +29,9 @@ def landing(request):
     })
 
 
+@staff_member_required
 def chat_page(request):
+    # Runs the real agent (OpenAI, Calendar writes, SMS), so staff only.
     return render(request, "chat.html", {"example_date": _example_date()})
 
 
@@ -43,8 +47,8 @@ def dashboard(request):
         "total_calls": total_calls,
         "booked_calls": booked_calls,
         "conversion": conversion,
-        "todays_appts": Appointment.objects.filter(date=today).count(),
-        "upcoming": Appointment.objects.filter(date__gte=today).count(),
+        "todays_appts": Appointment.objects.filter(date=today, status=Appointment.STATUS_BOOKED).count(),
+        "upcoming": Appointment.objects.filter(date__gte=today, status=Appointment.STATUS_BOOKED).count(),
         "appointments": Appointment.objects.all()[:50],
         "calls": CallLog.objects.all()[:50],
     })

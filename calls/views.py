@@ -1,13 +1,15 @@
+import functools
 import json
 import logging
 import uuid
 import time
+from django.conf import settings
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from .agent.receptionist import handle_conversation_turn
-from .services.calendar import check_availability, book_appointment
-from .services.sms import send_sms
-from .services.database import log_call
+from .privacy import mask_phone
+from .security import PRINCIPAL_VAPI, is_rate_limited, require_api_auth, too_many_requests
+from .services.database import get_or_create_call, record_end_of_call
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +34,21 @@ def openai_messages_to_claude(messages: list) -> list:
     return claude_messages
 
 
+def _post_only(view):
+    @functools.wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if request.method != "POST":
+            return JsonResponse({"error": "Method not allowed"}, status=405)
+        return view(request, *args, **kwargs)
+
+    return wrapped
+
+
 @csrf_exempt
+@_post_only
+@require_api_auth(allow_staff_session=True)
 def chat_completions(request):
     """OpenAI-compatible chat completions endpoint for Vapi custom LLM."""
-    if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
-
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -46,20 +57,28 @@ def chat_completions(request):
     messages = data.get("messages", [])
     logger.info(f"[CUSTOM LLM] Received {len(messages)} messages")
 
-    # Extract caller phone from VAPI call metadata or request
+    # Extract caller phone and call id from VAPI call metadata or request
     caller_phone = None
-    call_data = data.get("call", {})
+    call_data = data.get("call") or {}
+    vapi_call_id = call_data.get("id")
     if call_data:
-        caller_phone = call_data.get("customer", {}).get("number")
+        caller_phone = (call_data.get("customer") or {}).get("number")
     # Fallback: check metadata
     if not caller_phone:
         metadata = data.get("metadata", {})
         caller_phone = metadata.get("customerNumber")
     if caller_phone:
-        logger.info(f"[CUSTOM LLM] Caller phone: {caller_phone}")
+        logger.info("[CUSTOM LLM] Caller phone: %s", mask_phone(caller_phone))
 
     if not messages:
         return JsonResponse({"error": "No messages provided"}, status=400)
+
+    if (
+        request.api_principal == PRINCIPAL_VAPI
+        and vapi_call_id
+        and is_rate_limited("call", vapi_call_id, settings.API_RATE_LIMIT_PER_CALL_PER_MINUTE)
+    ):
+        return too_many_requests()
 
     # Convert OpenAI messages to Claude format
     claude_messages = openai_messages_to_claude(messages)
@@ -84,12 +103,14 @@ def chat_completions(request):
 
     try:
         # Run the full agentic loop (Claude + tools)
-        result = handle_conversation_turn(fixed_messages, caller_phone=caller_phone)
+        call_log = get_or_create_call(vapi_call_id, caller_phone)
+        result = handle_conversation_turn(fixed_messages, caller_phone=caller_phone, call_log=call_log)
         response_text = result["text"]
         end_call = result["end_call"]
-        logger.info(f"[CUSTOM LLM] Claude response: {response_text[:100]}... end_call={end_call}")
+        logger.info("[CUSTOM LLM] Response ready (%d chars) end_call=%s", len(response_text), end_call)
+        logger.debug("[CUSTOM LLM] Response text: %s", response_text)
     except Exception as e:
-        logger.error(f"[CUSTOM LLM ERROR] {e}")
+        logger.exception("[CUSTOM LLM ERROR] %s", type(e).__name__)
         response_text = "I'm sorry, I'm having a technical issue right now. Please try calling back in a moment."
         end_call = False
 
@@ -173,10 +194,16 @@ def _stream_response(text: str, end_call: bool = False):
 
 @csrf_exempt
 def vapi_webhook(request):
-    """Handle incoming Vapi webhook events (end-of-call, status updates)."""
+    """Handle incoming Vapi webhook events (end-of-call, status updates).
+    GET is an unauthenticated health check; POST requires the Vapi secret."""
     if request.method == "GET":
         return JsonResponse({"status": "ok", "service": "AI Voice Receptionist"})
+    return _handle_webhook_event(request)
 
+
+@_post_only
+@require_api_auth()
+def _handle_webhook_event(request):
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -192,7 +219,7 @@ def vapi_webhook(request):
         call = message.get("call", {})
         summary = message.get("summary", "")
         transcript = message.get("transcript", "")
-        caller_phone = call.get("customer", {}).get("number", "unknown")
+        caller_phone = (call.get("customer") or {}).get("number", "unknown")
         # VAPI sends duration in different places depending on version
         duration = call.get("duration") or message.get("durationSeconds") or message.get("duration")
         # Also check cost breakdown
@@ -200,31 +227,18 @@ def vapi_webhook(request):
             cost = message.get("costBreakdown", {})
             duration = cost.get("duration") or cost.get("durationSeconds")
 
-        logger.info(f"[CALL ENDED] id={call.get('id')} duration={duration}s phone={caller_phone}")
+        logger.info("[CALL ENDED] id=%s duration=%ss phone=%s", call.get("id"), duration, mask_phone(caller_phone))
 
         try:
-            log_call({
-                "caller_phone": caller_phone,
-                "call_summary": summary or transcript or "No summary available",
-                "appointment_booked": False,
-                "duration_seconds": int(duration) if duration else None,
-            })
+            record_end_of_call(
+                vapi_call_id=call.get("id"),
+                caller_phone=(call.get("customer") or {}).get("number"),
+                summary=summary or transcript or "No summary available",
+                duration_seconds=int(float(duration)) if duration else None,
+            )
             logger.info("[CALL LOGGED] Successfully saved to database")
-        except Exception as e:
-            logger.error(f"[LOG ERROR] {e}")
+        except Exception:
+            logger.exception("[LOG ERROR] failed to record end-of-call report")
 
     return JsonResponse({})
 
-
-def execute_tool(name: str, tool_input: dict) -> dict:
-    match name:
-        case "check_availability":
-            return check_availability(tool_input["date"])
-        case "book_appointment":
-            return book_appointment(tool_input)
-        case "send_sms":
-            return send_sms(tool_input["to"], tool_input["message"])
-        case "log_call":
-            return log_call(tool_input)
-        case _:
-            return {"error": f"Unknown tool: {name}"}
