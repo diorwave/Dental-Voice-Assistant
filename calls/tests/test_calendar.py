@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 
 from django.test import TestCase
 
@@ -77,17 +77,99 @@ class AvailabilityTests(TestCase):
         self.assertEqual(self.check(date(2026, 11, 2), fake=fake)["total_available"], 20)
 
 
-class BookingWindowTests(TestCase):
+class BookingTests(TestCase):
     def book(self, request, fake, now=MONDAY_MORNING):
         with patch_calendar(fake), patch_now(now):
             return calendar.book_appointment(request)
 
-    def test_booking_inside_hours_succeeds(self):
+    def test_successful_booking_creates_event_and_row(self):
         fake = FakeCalendar()
         result = self.book(booking(), fake)
         self.assertTrue(result["success"])
         self.assertEqual(len(fake.inserted), 1)
-        self.assertEqual(Appointment.objects.get().duration_minutes, 30)
+        appt = Appointment.objects.get()
+        self.assertEqual(appt.google_event_id, fake.inserted[0]["id"])
+        self.assertEqual(appt.duration_minutes, 30)
+
+    def test_taken_slot_is_not_reported_as_success(self):
+        fake = FakeCalendar()
+        fake.add_timed(clinic_time(2026, 11, 2, 10), clinic_time(2026, 11, 2, 11))
+        result = self.book(booking(), fake)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "slot_taken")
+        self.assertEqual(result["alternatives"], ["09:30", "11:00"])
+        self.assertEqual(fake.inserted, [])
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_slot_held_by_another_patient_in_db_is_taken(self):
+        fake = FakeCalendar()
+        self.book(booking(), fake)
+        result = self.book(booking(patient_name="Other", patient_phone="+15559876543"), fake)
+        self.assertEqual(result["error"], "slot_taken")
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_repeat_booking_by_same_patient_is_idempotent(self):
+        fake = FakeCalendar()
+        first = self.book(booking(), fake)
+        second = self.book(booking(), fake)
+        self.assertTrue(second["success"])
+        self.assertEqual(first["appointment_id"], second["appointment_id"])
+        self.assertEqual(len(fake.inserted), 1)
+
+    def test_in_flight_reservation_blocks_overlapping_booking(self):
+        # Another request reserved 10:00-11:00 but its Calendar insert hasn't landed.
+        Appointment.objects.create(
+            patient_name="A", patient_phone="+15550000001", appointment_type="new_patient",
+            date=date(2026, 11, 2), time=time(10), duration_minutes=60,
+        )
+        result = self.book(booking(time="10:30", patient_phone="+15559876543"), FakeCalendar())
+        self.assertEqual(result["error"], "slot_taken")
+
+    def test_same_patient_retry_while_first_booking_in_flight_is_not_confirmed(self):
+        Appointment.objects.create(
+            patient_name="Jane Doe", patient_phone="+15551234567", appointment_type="returning",
+            date=date(2026, 11, 2), time=time(10),
+        )
+        result = self.book(booking(), FakeCalendar())
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "booking_in_progress")
+
+    def test_deleting_the_calendar_event_frees_the_slot(self):
+        fake = FakeCalendar()
+        first = self.book(booking(), fake)
+        fake.items.clear()  # staff cancelled by deleting the event in Google Calendar
+        result = self.book(booking(patient_name="Other", patient_phone="+15559876543"), fake)
+        self.assertTrue(result["success"])
+        self.assertEqual(Appointment.objects.get(pk=first["appointment_id"]).status, Appointment.STATUS_CANCELLED)
+        self.assertEqual(Appointment.objects.filter(status=Appointment.STATUS_BOOKED).count(), 1)
+
+    def test_abandoned_reservation_is_released(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        stale = Appointment.objects.create(
+            patient_name="A", patient_phone="+15550000001", appointment_type="returning",
+            date=date(2026, 11, 2), time=time(10),
+        )
+        Appointment.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(hours=1))
+        result = self.book(booking(patient_phone="+15559876543"), FakeCalendar())
+        self.assertTrue(result["success"])
+        stale.refresh_from_db()
+        self.assertEqual(stale.status, Appointment.STATUS_CANCELLED)
+
+    def test_unique_constraint_guards_same_start(self):
+        from django.db import IntegrityError, transaction
+
+        Appointment.objects.create(
+            patient_name="A", patient_phone="+15550000001", appointment_type="returning",
+            date=date(2026, 11, 2), time=time(10),
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Appointment.objects.create(
+                patient_name="B", patient_phone="+15550000002", appointment_type="returning",
+                date=date(2026, 11, 2), time=time(10),
+            )
 
     def test_out_of_hours_and_closed_days_are_rejected(self):
         cases = [
@@ -105,3 +187,10 @@ class BookingWindowTests(TestCase):
         with self.assertRaises(ToolArgumentError) as ctx:
             self.book(booking(time="09:00"), FakeCalendar(), now=clinic_time(2026, 11, 2, 9, 30))
         self.assertEqual(ctx.exception.code, "time_in_past")
+
+    def test_calendar_failure_releases_the_reservation(self):
+        fake = FakeCalendar()
+        fake.fail_insert = True
+        with self.assertRaises(RuntimeError):
+            self.book(booking(), fake)
+        self.assertFalse(Appointment.objects.exists())

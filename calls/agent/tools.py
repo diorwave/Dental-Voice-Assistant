@@ -29,7 +29,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "book_appointment",
-            "description": "Book an appointment on Google Calendar.",
+            "description": (
+                "Book an appointment. Returns success=false with error=slot_taken and "
+                "alternatives when the time is no longer free; never tell the caller they are "
+                "booked unless success is true."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

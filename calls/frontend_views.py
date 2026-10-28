@@ -43,8 +43,8 @@ def dashboard(request):
         "total_calls": total_calls,
         "booked_calls": booked_calls,
         "conversion": conversion,
-        "todays_appts": Appointment.objects.filter(date=today).count(),
-        "upcoming": Appointment.objects.filter(date__gte=today).count(),
+        "todays_appts": Appointment.objects.filter(date=today, status=Appointment.STATUS_BOOKED).count(),
+        "upcoming": Appointment.objects.filter(date__gte=today, status=Appointment.STATUS_BOOKED).count(),
         "appointments": Appointment.objects.all()[:50],
         "calls": CallLog.objects.all()[:50],
     })

@@ -8,6 +8,10 @@ Rules enforced here (server-side, regardless of what the model asks for):
 * No past dates or times.
 * All-day events (holidays, closures) block the whole day; events marked
   "show as available" (transparent) block nothing.
+* A slot that is already taken is reported as ``slot_taken`` together with
+  nearby free alternatives — never as a success.
+* Google Calendar is the source of truth for confirmed appointments: deleting
+  an event there frees the slot (the DB row is marked cancelled).
 """
 from __future__ import annotations
 
@@ -15,6 +19,8 @@ import logging
 from datetime import date, datetime, time, timedelta
 
 from django.conf import settings
+from django.db import IntegrityError, connection, transaction
+from django.utils import timezone
 
 from .. import clinic
 from ..agent.arguments import AvailabilityRequest, BookingRequest, ToolArgumentError
@@ -24,6 +30,12 @@ logger = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 Interval = tuple[datetime, datetime]
+
+# A reservation whose Calendar insert hasn't completed after this long is
+# considered abandoned (e.g. the worker was killed) and released.
+RESERVATION_TTL_MINUTES = 10
+# First key of the PostgreSQL advisory lock used to serialize bookings per day.
+BOOKING_LOCK_NAMESPACE = 72_001
 
 _calendar_service = None
 
@@ -112,11 +124,17 @@ def validate_booking_window(start: datetime, duration_minutes: int, now: datetim
         )
 
 
+def _nearest(slots: list[datetime], target: datetime, count: int = 2) -> list[str]:
+    # Closest first; on a tie prefer the later slot (callers rarely want earlier).
+    ranked = sorted(slots, key=lambda s: (abs((s - target).total_seconds()), s < target))
+    return [s.strftime("%H:%M") for s in sorted(ranked[:count])]
+
+
 # ─── Calendar I/O ─────────────────────────────────────────────────────────
 
 
-def busy_intervals(day: date) -> list[Interval]:
-    """Blocking intervals overlapping ``day`` (clinic-local), from Google Calendar."""
+def calendar_events(day: date) -> list[dict]:
+    """Events overlapping ``day`` (clinic-local) on the clinic's Google Calendar."""
     tz = clinic.clinic_tz()
     day_start = datetime.combine(day, time.min, tz)
     events = (
@@ -132,12 +150,63 @@ def busy_intervals(day: date) -> list[Interval]:
         )
         .execute()
     )
+    return events.get("items", [])
+
+
+def _intervals(events: list[dict]) -> list[Interval]:
+    tz = clinic.clinic_tz()
+    return [iv for iv in (event_interval(e, tz) for e in events) if iv]
+
+
+def busy_intervals(day: date) -> list[Interval]:
+    """Blocking intervals overlapping ``day`` from Google Calendar."""
+    return _intervals(calendar_events(day))
+
+
+def _reconcile_with_calendar(day: date, events: list[dict]) -> None:
+    """Google Calendar is the source of truth for confirmed appointments: staff
+    cancel by deleting the event. Release DB rows whose event is gone, and
+    reservations whose Calendar insert never completed (crashed worker)."""
+    from ..models import Appointment
+
+    live_ids = {e.get("id") for e in events if e.get("status") != "cancelled"}
+    stale_before = timezone.now() - timedelta(minutes=RESERVATION_TTL_MINUTES)
+    released = 0
+    for appt in Appointment.objects.filter(date=day, status=Appointment.STATUS_BOOKED):
+        orphaned = appt.google_event_id and appt.google_event_id not in live_ids
+        abandoned = not appt.google_event_id and appt.created_at < stale_before
+        if orphaned or abandoned:
+            appt.status = Appointment.STATUS_CANCELLED
+            appt.save(update_fields=["status"])
+            released += 1
+    if released:
+        logger.info("[BOOKING] released %d appointment(s) on %s no longer on the calendar", released, day)
+
+
+def _db_busy_intervals(day: date) -> list[Interval]:
+    """Booked appointments in our database. Covers a concurrent booking whose
+    Calendar event isn't visible yet."""
+    from ..models import Appointment
+
+    tz = clinic.clinic_tz()
     intervals = []
-    for event in events.get("items", []):
-        interval = event_interval(event, tz)
-        if interval:
-            intervals.append(interval)
+    for appt in Appointment.objects.filter(date=day, status=Appointment.STATUS_BOOKED):
+        start = datetime.combine(appt.date, appt.time, tz)
+        intervals.append((start, start + timedelta(minutes=appt.duration_minutes)))
     return intervals
+
+
+def _lock_day(day: date) -> None:
+    """Serialize bookings for one day until the surrounding transaction ends.
+
+    On PostgreSQL this is a transaction-scoped advisory lock, so the overlap
+    re-check below can't interleave with another booking for the same day (the
+    unique constraint alone only covers identical start times). SQLite (local
+    dev) serializes writers itself.
+    """
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [BOOKING_LOCK_NAMESPACE, day.toordinal()])
 
 
 def check_availability(request: AvailabilityRequest) -> dict:
@@ -156,7 +225,9 @@ def check_availability(request: AvailabilityRequest) -> dict:
             "total_available": 0,
         }
 
-    busy = busy_intervals(request.date)
+    events = calendar_events(request.date)
+    _reconcile_with_calendar(request.date, events)
+    busy = _intervals(events) + _db_busy_intervals(request.date)
     slots = [s.strftime("%H:%M") for s in free_slots(request.date, duration, busy, now)]
     return {
         "success": True,
@@ -171,69 +242,103 @@ def check_availability(request: AvailabilityRequest) -> dict:
 def book_appointment(request: BookingRequest) -> dict:
     from ..models import Appointment
 
-    service = get_calendar_service()
-    calendar_id = get_calendar_id()
-
     tz = clinic.clinic_tz()
+    now = clinic.now()
     duration = clinic.duration_for(request.appointment_type)
     start = datetime.combine(request.date, request.time, tz)
     end = start + timedelta(minutes=duration)
-    validate_booking_window(start, duration, clinic.now())
+    validate_booking_window(start, duration, now)
 
-    # Check for existing bookings at this slot to prevent duplicates
-    existing = (
-        service.events()
-        .list(
-            calendarId=calendar_id,
-            timeMin=start.isoformat(),
-            timeMax=end.isoformat(),
-            singleEvents=True,
-            timeZone=tz.key,
-        )
-        .execute()
-    )
-    if existing.get("items"):
-        existing_event = existing["items"][0]
-        logger.info(f"[DUPLICATE] Slot already booked at {request.date} {request.time}")
+    events = calendar_events(request.date)
+    _reconcile_with_calendar(request.date, events)
+    busy = _intervals(events) + _db_busy_intervals(request.date)
+
+    # Idempotency: the model sometimes retries the same booking. Only treat it as
+    # "already booked" when it's the *same patient* in the same slot, and only
+    # once that booking has actually reached the calendar.
+    existing = Appointment.objects.filter(
+        date=request.date, time=request.time, status=Appointment.STATUS_BOOKED
+    ).first()
+    if existing and existing.patient_phone == request.patient_phone:
+        if existing.google_event_id:
+            logger.info("[BOOKING] idempotent repeat for appointment id=%s", existing.pk)
+            return _booked_result(existing, start, end, already_booked=True)
         return {
-            "success": True,
-            "event_id": existing_event["id"],
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "note": "Appointment was already booked for this slot.",
+            "success": False,
+            "error": "booking_in_progress",
+            "message": "This booking is still being saved. Wait a moment, then try again.",
         }
+    if existing or overlaps(start, end, busy):
+        return _slot_taken(request, start, duration, busy, now)
 
-    event = (
-        service.events()
-        .insert(
-            calendarId=calendar_id,
-            body={
-                "summary": f"{request.appointment_type.replace('_', ' ').title()} - {request.patient_name}",
-                "description": f"Phone: {request.patient_phone}\nType: {request.appointment_type}",
-                "start": {"dateTime": start.isoformat(), "timeZone": tz.key},
-                "end": {"dateTime": end.isoformat(), "timeZone": tz.key},
-            },
+    # Reserve the slot in the database first, serialized per day, then create
+    # the Calendar event. The unique constraint on booked (date, time) is a
+    # backstop if the lock is unavailable.
+    try:
+        with transaction.atomic():
+            _lock_day(request.date)
+            if overlaps(start, end, _db_busy_intervals(request.date)):
+                raise IntegrityError("overlapping appointment")
+            appointment = Appointment.objects.create(
+                date=request.date,
+                time=request.time,
+                patient_name=request.patient_name,
+                patient_phone=request.patient_phone,
+                appointment_type=request.appointment_type,
+                duration_minutes=duration,
+            )
+    except IntegrityError:
+        busy = busy_intervals(request.date) + _db_busy_intervals(request.date)
+        return _slot_taken(request, start, duration, busy, now)
+
+    try:
+        event = (
+            get_calendar_service()
+            .events()
+            .insert(
+                calendarId=get_calendar_id(),
+                body={
+                    "summary": f"{request.appointment_type.replace('_', ' ').title()} - {request.patient_name}",
+                    "description": f"Phone: {request.patient_phone}\nType: {request.appointment_type}",
+                    "start": {"dateTime": start.isoformat(), "timeZone": tz.key},
+                    "end": {"dateTime": end.isoformat(), "timeZone": tz.key},
+                },
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception:
+        # Release the reservation so the slot isn't silently lost.
+        appointment.delete()
+        raise
 
-    # Save appointment to database (prevent DB-level duplicates too)
-    Appointment.objects.get_or_create(
-        date=request.date,
-        time=request.time,
-        patient_phone=request.patient_phone,
-        defaults={
-            "patient_name": request.patient_name,
-            "appointment_type": request.appointment_type,
-            "duration_minutes": duration,
-            "google_event_id": event["id"],
-        },
-    )
-    logger.info(f"[BOOKED] {request.patient_name} on {request.date} at {request.time}")
+    appointment.google_event_id = event["id"]
+    appointment.save(update_fields=["google_event_id"])
+    logger.info("[BOOKED] appointment id=%s on %s at %s", appointment.pk, request.date, request.time)
+    return _booked_result(appointment, start, end)
 
-    return {
+
+def _booked_result(appointment, start: datetime, end: datetime, *, already_booked: bool = False) -> dict:
+    result = {
         "success": True,
-        "event_id": event["id"],
+        "appointment_id": appointment.pk,
+        "date": start.date().isoformat(),
+        "time": start.strftime("%H:%M"),
         "start": start.isoformat(),
         "end": end.isoformat(),
+        "duration_minutes": appointment.duration_minutes,
+        "already_booked": already_booked,
+    }
+    if already_booked:
+        result["note"] = "This patient already has this appointment; nothing new was created."
+    return result
+
+
+def _slot_taken(request: BookingRequest, start: datetime, duration: int, busy, now) -> dict:
+    logger.info("[BOOKING] slot taken on %s at %s", request.date, request.time)
+    alternatives = _nearest(free_slots(request.date, duration, busy, now), start)
+    return {
+        "success": False,
+        "error": "slot_taken",
+        "message": "That time is no longer available. Offer the caller one of the alternatives.",
+        "alternatives": alternatives,
     }

@@ -12,7 +12,7 @@ class CallLogAdmin(admin.ModelAdmin):
 
 @admin.register(Appointment)
 class AppointmentAdmin(admin.ModelAdmin):
-    list_display = ("patient_name", "patient_phone", "appointment_type", "date", "time", "duration_minutes", "created_at")
-    list_filter = ("appointment_type", "date")
+    list_display = ("patient_name", "patient_phone", "appointment_type", "date", "time", "duration_minutes", "status", "created_at")
+    list_filter = ("status", "appointment_type", "date")
     search_fields = ("patient_name", "patient_phone")
     readonly_fields = ("created_at", "google_event_id")
