@@ -3,13 +3,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "check_availability",
-            "description": "Check available appointment slots on Google Calendar for a given date.",
+            "description": (
+                "List open start times (HH:MM, 24h, clinic local time) on a date for an "
+                "appointment of the given type. Only slots where the whole appointment fits "
+                "inside opening hours are returned."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "date": {
                         "type": "string",
                         "description": "The date to check, in YYYY-MM-DD format",
+                    },
+                    "appointment_type": {
+                        "type": "string",
+                        "enum": ["new_patient", "returning", "emergency"],
+                        "description": "Determines appointment length. Defaults to returning (30 min).",
                     },
                 },
                 "required": ["date"],
@@ -20,7 +29,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "book_appointment",
-            "description": "Book an appointment on Google Calendar.",
+            "description": (
+                "Book an appointment. Returns success=false with error=slot_taken and "
+                "alternatives when the time is no longer free; never tell the caller they are "
+                "booked unless success is true."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -35,38 +48,6 @@ TOOLS = [
                     },
                 },
                 "required": ["date", "time", "patient_name", "patient_phone", "appointment_type"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "send_sms",
-            "description": "Send an SMS confirmation to the patient.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Phone number to send SMS to"},
-                    "message": {"type": "string", "description": "The SMS message body"},
-                },
-                "required": ["to", "message"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "log_call",
-            "description": "Log call details to the database.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "caller_phone": {"type": "string"},
-                    "call_summary": {"type": "string"},
-                    "appointment_booked": {"type": "boolean"},
-                    "duration_seconds": {"type": "number"},
-                },
-                "required": ["caller_phone", "call_summary", "appointment_booked"],
             },
         },
     },
