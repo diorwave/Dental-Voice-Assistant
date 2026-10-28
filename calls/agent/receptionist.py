@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 from openai import OpenAI
+from .arguments import AvailabilityRequest, BookingRequest, ToolArgumentError
 from .tools import TOOLS
 from .prompts import get_receptionist_prompt
 from ..services.calendar import check_availability, book_appointment
@@ -130,11 +131,19 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str = Non
 
 
 def execute_tool(name: str, tool_input: dict) -> dict:
+    try:
+        return _dispatch_tool(name, tool_input)
+    except ToolArgumentError as e:
+        # Structured, recoverable error: the model can ask the caller to clarify.
+        return e.as_result()
+
+
+def _dispatch_tool(name: str, tool_input: dict) -> dict:
     match name:
         case "check_availability":
-            return check_availability(tool_input["date"])
+            return check_availability(AvailabilityRequest.from_args(tool_input))
         case "book_appointment":
-            return book_appointment(tool_input)
+            return book_appointment(BookingRequest.from_args(tool_input))
         case "send_sms":
             # Fire SMS in background to avoid blocking the voice response.
             # Twilio can take 5-10s which triggers VAPI idle timeout.
