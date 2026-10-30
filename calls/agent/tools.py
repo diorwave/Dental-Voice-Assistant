@@ -54,38 +54,6 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "send_sms",
-            "description": "Send an SMS confirmation to the patient.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Phone number to send SMS to"},
-                    "message": {"type": "string", "description": "The SMS message body"},
-                },
-                "required": ["to", "message"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "log_call",
-            "description": "Log call details to the database.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "caller_phone": {"type": "string"},
-                    "call_summary": {"type": "string"},
-                    "appointment_booked": {"type": "boolean"},
-                    "duration_seconds": {"type": "number"},
-                },
-                "required": ["caller_phone", "call_summary", "appointment_booked"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "end_call",
             "description": "End the phone call. Use this after saying goodbye to the caller so the call disconnects automatically.",
             "parameters": {

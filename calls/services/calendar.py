@@ -43,13 +43,17 @@ _calendar_service = None
 def get_calendar_service():
     global _calendar_service
     if _calendar_service is None:
+        import httplib2
         from google.oauth2 import service_account
+        from google_auth_httplib2 import AuthorizedHttp
         from googleapiclient.discovery import build
 
         creds = service_account.Credentials.from_service_account_file(
             settings.GOOGLE_CALENDAR_CREDENTIALS, scopes=SCOPES
         )
-        _calendar_service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+        # Explicit socket timeout; the default is to wait forever.
+        http = AuthorizedHttp(creds, http=httplib2.Http(timeout=settings.GOOGLE_API_TIMEOUT_SECONDS))
+        _calendar_service = build("calendar", "v3", http=http, cache_discovery=False)
     return _calendar_service
 
 
@@ -239,8 +243,9 @@ def check_availability(request: AvailabilityRequest) -> dict:
     }
 
 
-def book_appointment(request: BookingRequest) -> dict:
+def book_appointment(request: BookingRequest, call=None) -> dict:
     from ..models import Appointment
+    from .database import mark_appointment_booked
 
     tz = clinic.clinic_tz()
     now = clinic.now()
@@ -286,6 +291,7 @@ def book_appointment(request: BookingRequest) -> dict:
                 patient_phone=request.patient_phone,
                 appointment_type=request.appointment_type,
                 duration_minutes=duration,
+                call=call,
             )
     except IntegrityError:
         busy = busy_intervals(request.date) + _db_busy_intervals(request.date)
@@ -313,6 +319,7 @@ def book_appointment(request: BookingRequest) -> dict:
 
     appointment.google_event_id = event["id"]
     appointment.save(update_fields=["google_event_id"])
+    mark_appointment_booked(call)
     logger.info("[BOOKED] appointment id=%s on %s at %s", appointment.pk, request.date, request.time)
     return _booked_result(appointment, start, end)
 
