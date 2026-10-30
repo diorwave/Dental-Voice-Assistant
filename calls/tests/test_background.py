@@ -1,6 +1,6 @@
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from calls import background
 
@@ -51,13 +51,19 @@ class BackgroundTests(SimpleTestCase):
         self.assertEqual(seen, ["x"])
 
 
-class SendSmsToolTests(SimpleTestCase):
-    def test_send_sms_tool_uses_background_runner_not_raw_threads(self):
-        from calls.agent import receptionist
+class SmsUsesBackgroundRunnerTests(TestCase):
+    @override_settings(TWILIO_ACCOUNT_SID="AC1", TWILIO_AUTH_TOKEN="t", TWILIO_PHONE_NUMBER="+15550001111")
+    def test_confirmation_is_sent_through_the_background_runner(self):
+        from datetime import date, time
 
-        with mock.patch("calls.agent.receptionist.run_in_background") as run, \
-                mock.patch("threading.Thread") as thread:
-            result = receptionist.execute_tool("send_sms", {"to": "+15551234567", "message": "hi"})
-        run.assert_called_once()
+        from calls.models import Appointment
+        from calls.services import sms
+
+        appt = Appointment.objects.create(
+            patient_name="J", patient_phone="+15551234567", appointment_type="returning",
+            date=date(2026, 11, 2), time=time(10),
+        )
+        with mock.patch("calls.background.run_in_background") as run, mock.patch("threading.Thread") as thread:
+            self.assertTrue(sms.queue_booking_confirmation(appt))
+        run.assert_called_once_with(sms.deliver_booking_confirmation, appt.pk)
         thread.assert_not_called()
-        self.assertTrue(result["success"])

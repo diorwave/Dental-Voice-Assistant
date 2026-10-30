@@ -132,6 +132,18 @@ GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+# Max confirmation texts per recipient per rolling 24h (abuse / toll-fraud guard).
+SMS_DAILY_LIMIT_PER_NUMBER = int(os.getenv("SMS_DAILY_LIMIT_PER_NUMBER", "3"))
+
+# ─── Agent / upstream limits ────────────────────────────────
+# Upper bound on model→tool round-trips per caller turn, and per-request
+# timeouts for upstream APIs so a slow dependency can't hold a worker past
+# Vapi's response window.
+AGENT_MAX_TOOL_ITERATIONS = int(os.getenv("AGENT_MAX_TOOL_ITERATIONS", "5"))
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "15"))
+OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "1"))
+GOOGLE_API_TIMEOUT_SECONDS = float(os.getenv("GOOGLE_API_TIMEOUT_SECONDS", "10"))
+TWILIO_TIMEOUT_SECONDS = float(os.getenv("TWILIO_TIMEOUT_SECONDS", "10"))
 
 # Background work (SMS delivery). EAGER runs tasks inline — used by tests.
 BACKGROUND_TASK_WORKERS = int(os.getenv("BACKGROUND_TASK_WORKERS", "4"))

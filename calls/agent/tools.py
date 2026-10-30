@@ -54,21 +54,6 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "send_sms",
-            "description": "Send an SMS confirmation to the patient.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Phone number to send SMS to"},
-                    "message": {"type": "string", "description": "The SMS message body"},
-                },
-                "required": ["to", "message"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "end_call",
             "description": "End the phone call. Use this after saying goodbye to the caller so the call disconnects automatically.",
             "parameters": {
