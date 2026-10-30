@@ -24,6 +24,19 @@ class Appointment(models.Model):
     STATUS_CANCELLED = "cancelled"
     STATUSES = [(STATUS_BOOKED, "Booked"), (STATUS_CANCELLED, "Cancelled")]
 
+    SMS_NOT_SENT = "not_sent"
+    SMS_PENDING = "pending"
+    SMS_SENT = "sent"
+    SMS_FAILED = "failed"
+    SMS_SKIPPED = "skipped"
+    SMS_STATUSES = [
+        (SMS_NOT_SENT, "Not sent"),
+        (SMS_PENDING, "Pending"),
+        (SMS_SENT, "Sent"),
+        (SMS_FAILED, "Failed"),
+        (SMS_SKIPPED, "Skipped"),
+    ]
+
     patient_name = models.CharField(max_length=100)
     patient_phone = models.CharField(max_length=20)
     appointment_type = models.CharField(
@@ -42,6 +55,11 @@ class Appointment(models.Model):
     call = models.ForeignKey(
         CallLog, null=True, blank=True, on_delete=models.SET_NULL, related_name="appointments"
     )
+    # Confirmation SMS delivery, so failures are visible instead of fire-and-forget.
+    sms_status = models.CharField(max_length=10, choices=SMS_STATUSES, default=SMS_NOT_SENT)
+    sms_sid = models.CharField(max_length=64, blank=True)
+    sms_error = models.CharField(max_length=255, blank=True)
+    sms_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

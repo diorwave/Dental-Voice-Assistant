@@ -203,11 +203,11 @@ ai-voice-agent/
 │   ├── templates/               # base, landing, chat, dashboard, chat widget
 │   ├── agent/
 │   │   ├── receptionist.py      # OpenAI agentic loop (the brain)
-│   │   ├── tools.py             # OpenAI tool schemas (calendar, SMS, DB, end call)
+│   │   ├── tools.py             # OpenAI tool schemas (availability, booking, end call)
 │   │   └── prompts.py           # System prompt (Sarah @ Bright Smile Dental)
 │   └── services/
 │       ├── calendar.py          # Google Calendar API
-│       ├── sms.py               # Twilio SMS
+│       ├── sms.py               # Twilio booking confirmations (server-side only)
 │       └── database.py          # Call logging
 ├── docker-compose.yml
 ├── Dockerfile
