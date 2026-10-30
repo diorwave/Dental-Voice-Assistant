@@ -5,7 +5,7 @@ import time
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from .agent.receptionist import handle_conversation_turn
-from .services.database import log_call
+from .services.database import get_or_create_call, record_end_of_call
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,12 @@ def chat_completions(request):
     messages = data.get("messages", [])
     logger.info(f"[CUSTOM LLM] Received {len(messages)} messages")
 
-    # Extract caller phone from VAPI call metadata or request
+    # Extract caller phone and call id from VAPI call metadata or request
     caller_phone = None
-    call_data = data.get("call", {})
+    call_data = data.get("call") or {}
+    vapi_call_id = call_data.get("id")
     if call_data:
-        caller_phone = call_data.get("customer", {}).get("number")
+        caller_phone = (call_data.get("customer") or {}).get("number")
     # Fallback: check metadata
     if not caller_phone:
         metadata = data.get("metadata", {})
@@ -82,7 +83,8 @@ def chat_completions(request):
 
     try:
         # Run the full agentic loop (Claude + tools)
-        result = handle_conversation_turn(fixed_messages, caller_phone=caller_phone)
+        call_log = get_or_create_call(vapi_call_id, caller_phone)
+        result = handle_conversation_turn(fixed_messages, caller_phone=caller_phone, call_log=call_log)
         response_text = result["text"]
         end_call = result["end_call"]
         logger.info(f"[CUSTOM LLM] Claude response: {response_text[:100]}... end_call={end_call}")
@@ -190,7 +192,7 @@ def vapi_webhook(request):
         call = message.get("call", {})
         summary = message.get("summary", "")
         transcript = message.get("transcript", "")
-        caller_phone = call.get("customer", {}).get("number", "unknown")
+        caller_phone = (call.get("customer") or {}).get("number", "unknown")
         # VAPI sends duration in different places depending on version
         duration = call.get("duration") or message.get("durationSeconds") or message.get("duration")
         # Also check cost breakdown
@@ -201,15 +203,15 @@ def vapi_webhook(request):
         logger.info(f"[CALL ENDED] id={call.get('id')} duration={duration}s phone={caller_phone}")
 
         try:
-            log_call({
-                "caller_phone": caller_phone,
-                "call_summary": summary or transcript or "No summary available",
-                "appointment_booked": False,
-                "duration_seconds": int(duration) if duration else None,
-            })
+            record_end_of_call(
+                vapi_call_id=call.get("id"),
+                caller_phone=(call.get("customer") or {}).get("number"),
+                summary=summary or transcript or "No summary available",
+                duration_seconds=int(float(duration)) if duration else None,
+            )
             logger.info("[CALL LOGGED] Successfully saved to database")
-        except Exception as e:
-            logger.error(f"[LOG ERROR] {e}")
+        except Exception:
+            logger.exception("[LOG ERROR] failed to record end-of-call report")
 
     return JsonResponse({})
 

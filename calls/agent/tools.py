@@ -29,7 +29,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "book_appointment",
-            "description": "Book an appointment on Google Calendar.",
+            "description": (
+                "Book an appointment. Returns success=false with error=slot_taken and "
+                "alternatives when the time is no longer free; never tell the caller they are "
+                "booked unless success is true."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -44,38 +48,6 @@ TOOLS = [
                     },
                 },
                 "required": ["date", "time", "patient_name", "patient_phone", "appointment_type"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "send_sms",
-            "description": "Send an SMS confirmation to the patient.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Phone number to send SMS to"},
-                    "message": {"type": "string", "description": "The SMS message body"},
-                },
-                "required": ["to", "message"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "log_call",
-            "description": "Log call details to the database.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "caller_phone": {"type": "string"},
-                    "call_summary": {"type": "string"},
-                    "appointment_booked": {"type": "boolean"},
-                    "duration_seconds": {"type": "number"},
-                },
-                "required": ["caller_phone", "call_summary", "appointment_booked"],
             },
         },
     },
