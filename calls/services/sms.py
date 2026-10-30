@@ -26,9 +26,14 @@ _twilio_client = None
 def get_twilio_client():
     global _twilio_client
     if _twilio_client is None:
+        from twilio.http.http_client import TwilioHttpClient
         from twilio.rest import Client
 
-        _twilio_client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        _twilio_client = Client(
+            settings.TWILIO_ACCOUNT_SID,
+            settings.TWILIO_AUTH_TOKEN,
+            http_client=TwilioHttpClient(timeout=settings.TWILIO_TIMEOUT_SECONDS),
+        )
     return _twilio_client
 
 

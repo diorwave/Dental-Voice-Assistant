@@ -1,6 +1,8 @@
 """Test doubles for external services."""
 import itertools
+import json
 from datetime import datetime
+from types import SimpleNamespace
 from unittest import mock
 from zoneinfo import ZoneInfo
 
@@ -64,3 +66,31 @@ def patch_calendar(fake: FakeCalendar):
 def patch_now(dt: datetime):
     return mock.patch("calls.clinic.now", return_value=dt)
 
+
+# ─── OpenAI ────────────────────────────────────────────────────────────────
+
+def tool_call(name: str, args: dict, call_id: str = "tc1"):
+    return SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments=json.dumps(args)))
+
+
+def assistant(content: str = "", tool_calls=None):
+    return SimpleNamespace(content=content, tool_calls=tool_calls or None)
+
+
+class FakeOpenAI:
+    """Replays scripted assistant messages; records what it was sent."""
+
+    def __init__(self, *messages, repeat_last: bool = False):
+        self._messages = list(messages)
+        self._repeat_last = repeat_last
+        self.requests = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.requests.append(kwargs)
+        msg = self._messages[0] if (self._repeat_last and len(self._messages) == 1) else self._messages.pop(0)
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+
+def patch_openai(fake: FakeOpenAI):
+    return mock.patch("calls.agent.receptionist.get_client", return_value=fake)
